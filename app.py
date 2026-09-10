@@ -206,13 +206,15 @@ def fetch_observations(params_tuple):
 @st.cache_data(ttl=86400, show_spinner=False)
 def fetch_taxa_by_ids(ids_tuple):
     """
-    Haal taxonrecords in batches op.
+    Haal iNaturalist taxonrecords in kleine, veilige batches op.
+    /v1/taxa/{ids} ondersteunt meerdere comma-separated IDs; we gebruiken 25
+    per request om onder de gebruikelijke limiet te blijven.
     """
     ids = sorted({int(x) for x in ids_tuple if x})
     result = {}
 
-    for start in range(0, len(ids), 75):
-        batch = ids[start:start + 75]
+    for start in range(0, len(ids), 25):
+        batch = ids[start:start + 25]
         joined = ",".join(str(x) for x in batch)
         checkpoint(f"TAXON_LOOKUP batch_start={start} size={len(batch)}")
         try:
@@ -222,65 +224,56 @@ def fetch_taxa_by_ids(ids_tuple):
                 timeout=(10, 30),
             )
             r.raise_for_status()
-            for tx in r.json().get("results", []):
+            payload = r.json()
+            for tx in payload.get("results", []):
                 if tx.get("id"):
                     result[int(tx["id"])] = tx
         except Exception as e:
             log.exception("TAXON_LOOKUP_ERROR %s", e)
 
+    checkpoint(f"TAXON_LOOKUP_DONE requested={len(ids)} returned={len(result)}")
     return result
 
 
-@st.cache_data(ttl=86400, show_spinner=False)
-def build_taxon_lineage_lookup(focal_ids_tuple):
+def extract_ancestor_ids(taxon):
     """
-    Bouw de taxonomische stamboom op via parent_id.
-    Dit werkt ook wanneer observation.taxon geen ancestor_ids bevat.
+    Ondersteun de verschillende vormen waarin iNaturalist voorouders kan leveren:
+    - ancestor_ids: [1, 2, 3]
+    - ancestors: [1, 2, 3]
+    - ancestors: [{"id": 1}, {"id": 2}, ...]
     """
-    focal_ids = sorted({int(x) for x in focal_ids_tuple if x})
-    lookup = {}
-    pending = set(focal_ids)
-    depth = 0
+    ids = []
 
-    while pending and depth < 15:
-        checkpoint(f"LINEAGE_LEVEL depth={depth} pending={len(pending)}")
-        fetched = fetch_taxa_by_ids(tuple(sorted(pending)))
-        lookup.update(fetched)
+    for item in taxon.get("ancestor_ids") or []:
+        if isinstance(item, int):
+            ids.append(item)
+        elif isinstance(item, str) and item.isdigit():
+            ids.append(int(item))
 
-        next_pending = set()
-        for tx in fetched.values():
-            parent_id = tx.get("parent_id")
-            if parent_id and int(parent_id) not in lookup:
-                next_pending.add(int(parent_id))
+    for item in taxon.get("ancestors") or []:
+        if isinstance(item, int):
+            ids.append(item)
+        elif isinstance(item, str) and item.isdigit():
+            ids.append(int(item))
+        elif isinstance(item, dict) and item.get("id"):
+            ids.append(int(item["id"]))
 
-        pending = next_pending
-        depth += 1
+    if taxon.get("id"):
+        ids.append(int(taxon["id"]))
 
-    checkpoint(f"LINEAGE_DONE taxa={len(lookup)} depth={depth}")
-    return lookup
+    return list(dict.fromkeys(ids))
 
 
-def rank_from_parent_chain(taxon_id, lookup, wanted_rank, scientific=False):
+def rank_from_ancestors(taxon, lookup, wanted_rank, scientific=False):
     """
-    Loop vanaf het waargenomen taxon via parent_id omhoog tot de gewenste rang.
+    Zoek de gewenste rang in de opgehaalde voorouders van het waargenomen taxon.
     """
-    seen = set()
-    current_id = int(taxon_id) if taxon_id else None
-
-    while current_id and current_id not in seen:
-        seen.add(current_id)
-        tx = lookup.get(current_id)
-        if not tx:
-            return None
-
-        if tx.get("rank") == wanted_rank:
+    for tid in reversed(extract_ancestor_ids(taxon)):
+        tx = lookup.get(int(tid))
+        if tx and tx.get("rank") == wanted_rank:
             if scientific:
                 return tx.get("name")
             return tx.get("preferred_common_name") or tx.get("name")
-
-        parent_id = tx.get("parent_id")
-        current_id = int(parent_id) if parent_id else None
-
     return None
 
 def rank_name(taxon_record, wanted_rank, scientific=False):
@@ -382,22 +375,29 @@ with tab_dashboard:
                         st.stop()
 
                     st.write("Taxonomische indeling bepalen…")
-                    checkpoint("PARENT_LINEAGE_START")
+                    checkpoint("ANCESTOR_LOOKUP_START")
 
-                    focal_ids = sorted({
-                        (o.get("taxon") or {}).get("id")
-                        for o in inside
-                        if (o.get("taxon") or {}).get("id")
-                    })
+                    all_ids = set()
+                    focal_ids = set()
 
-                    taxon_lookup = build_taxon_lineage_lookup(tuple(focal_ids))
-                    checkpoint(f"PARENT_LINEAGE_DONE n={len(taxon_lookup)}")
+                    for o in inside:
+                        tx = o.get("taxon") or {}
+                        if tx.get("id"):
+                            focal_ids.add(int(tx["id"]))
+                        all_ids.update(extract_ancestor_ids(tx))
+
+                    checkpoint(
+                        f"ANCESTOR_IDS_COLLECTED focal={len(focal_ids)} all={len(all_ids)}"
+                    )
+
+                    taxon_lookup = fetch_taxa_by_ids(tuple(sorted(all_ids)))
+                    checkpoint(f"ANCESTOR_LOOKUP_DONE n={len(taxon_lookup)}")
 
                     out = []
                     for o in inside:
                         taxon = o.get("taxon") or {}
                         tid = taxon.get("id")
-                        focal = taxon_lookup.get(tid, {}) if tid else {}
+                        focal = taxon_lookup.get(int(tid), {}) if tid else {}
 
                         nl_name = (
                             focal.get("preferred_common_name")
@@ -411,11 +411,11 @@ with tab_dashboard:
                             "Nederlandse naam": nl_name,
                             "wetenschappelijke naam": taxon.get("name"),
                             "soortgroep": taxon.get("iconic_taxon_name") or "Onbekend",
-                            "orde": rank_from_parent_chain(tid, taxon_lookup, "order"),
-                            "orde_wetenschappelijk": rank_from_parent_chain(
-                                tid, taxon_lookup, "order", scientific=True
+                            "orde": rank_from_ancestors(taxon, taxon_lookup, "order"),
+                            "orde_wetenschappelijk": rank_from_ancestors(
+                                taxon, taxon_lookup, "order", scientific=True
                             ),
-                            "familie": rank_from_parent_chain(tid, taxon_lookup, "family"),
+                            "familie": rank_from_ancestors(taxon, taxon_lookup, "family"),
                         })
 
                     df = pd.DataFrame(out)
@@ -463,6 +463,18 @@ with tab_dashboard:
             insects = df[df["soortgroep"].eq("Insecta")].copy()
 
             if not insects.empty:
+                unknown_order_pct = insects["orde"].isna().mean() * 100
+                unknown_family_pct = insects["familie"].isna().mean() * 100
+                checkpoint(
+                    f"TAXONOMY_QUALITY insects={len(insects)} "
+                    f"unknown_order_pct={unknown_order_pct:.1f} "
+                    f"unknown_family_pct={unknown_family_pct:.1f}"
+                )
+                if unknown_order_pct > 20:
+                    st.warning(
+                        f"Taxonomische controle: {unknown_order_pct:.1f}% van de insectwaarnemingen "
+                        "heeft nog geen herkende orde. Dit wordt ook in de Streamlit-log geregistreerd."
+                    )
                 st.subheader("Insecten per orde")
                 order_counts = (
                     insects["orde"].fillna("Onbekende orde")
@@ -587,7 +599,7 @@ with tab_dashboard:
             checkpoint("DASHBOARD_RENDER_DONE")
 
 st.caption(
-    "iPad/web prototype v0.8 · taxonomie via parent_id-stamboom · "
+    "iPad/web prototype v0.9 · taxonomie via ancestors + veilige batches · "
     "geen iNaturalist-analyse vóór je op ‘Analyseer dit gebied’ drukt."
 )
 
