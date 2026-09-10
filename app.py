@@ -206,41 +206,47 @@ def fetch_observations(params_tuple):
 @st.cache_data(ttl=86400, show_spinner=False)
 def fetch_taxa_by_ids(ids_tuple):
     """
-    Haal iNaturalist taxonrecords in kleine, veilige batches op.
-    /v1/taxa/{ids} ondersteunt meerdere comma-separated IDs; we gebruiken 25
-    per request om onder de gebruikelijke limiet te blijven.
+    Haal veel taxonrecords efficiënt op via /v1/taxa met taxon_id als queryparameter.
+    Dit vermijdt honderden /v1/taxa/{id1,id2,...}-requests.
     """
     ids = sorted({int(x) for x in ids_tuple if x})
     result = {}
 
-    for start in range(0, len(ids), 25):
-        batch = ids[start:start + 25]
-        joined = ",".join(str(x) for x in batch)
-        checkpoint(f"TAXON_LOOKUP batch_start={start} size={len(batch)}")
+    # iNaturalist /v1/taxa kan veel taxa per pagina teruggeven.
+    # We houden de chunks ruim onder 500 om URLs/parameters beheersbaar te houden.
+    chunk_size = 350
+
+    for start in range(0, len(ids), chunk_size):
+        batch = ids[start:start + chunk_size]
+        checkpoint(f"TAXON_QUERY_BATCH start={start} size={len(batch)}")
+
         try:
-            r = requests.get(
-                f"{TAXA_API}/{joined}",
-                params={"locale": "nl", "preferred_place_id": 7506},
-                timeout=(10, 30),
-            )
+            params = {
+                "taxon_id": ",".join(str(x) for x in batch),
+                "per_page": 500,
+                "page": 1,
+                "locale": "nl",
+                "preferred_place_id": 7506,
+            }
+            r = requests.get(TAXA_API, params=params, timeout=(10, 45))
             r.raise_for_status()
             payload = r.json()
-            for tx in payload.get("results", []):
-                if tx.get("id"):
-                    result[int(tx["id"])] = tx
-        except Exception as e:
-            log.exception("TAXON_LOOKUP_ERROR %s", e)
 
-    checkpoint(f"TAXON_LOOKUP_DONE requested={len(ids)} returned={len(result)}")
+            for tx in payload.get("results", []):
+                tid = tx.get("id")
+                if tid:
+                    result[int(tid)] = tx
+
+        except Exception as e:
+            log.exception("TAXON_QUERY_BATCH_ERROR %s", e)
+
+    checkpoint(f"TAXON_QUERY_DONE requested={len(ids)} returned={len(result)}")
     return result
 
 
 def extract_ancestor_ids(taxon):
     """
-    Ondersteun de verschillende vormen waarin iNaturalist voorouders kan leveren:
-    - ancestor_ids: [1, 2, 3]
-    - ancestors: [1, 2, 3]
-    - ancestors: [{"id": 1}, {"id": 2}, ...]
+    Verzamel ancestor IDs uit de vormen die in de observation-response kunnen voorkomen.
     """
     ids = []
 
@@ -266,7 +272,7 @@ def extract_ancestor_ids(taxon):
 
 def rank_from_ancestors(taxon, lookup, wanted_rank, scientific=False):
     """
-    Zoek de gewenste rang in de opgehaalde voorouders van het waargenomen taxon.
+    Zoek orde/familie in de opgehaalde ancestorrecords.
     """
     for tid in reversed(extract_ancestor_ids(taxon)):
         tx = lookup.get(int(tid))
@@ -375,23 +381,21 @@ with tab_dashboard:
                         st.stop()
 
                     st.write("Taxonomische indeling bepalen…")
-                    checkpoint("ANCESTOR_LOOKUP_START")
+                    checkpoint("FAST_TAXONOMY_START")
 
-                    all_ids = set()
-                    focal_ids = set()
-
+                    # Alleen de vooroudertaxa verzamelen die daadwerkelijk nodig zijn
+                    # voor de waarnemingen binnen het getekende gebied.
+                    all_ancestor_ids = set()
                     for o in inside:
                         tx = o.get("taxon") or {}
-                        if tx.get("id"):
-                            focal_ids.add(int(tx["id"]))
-                        all_ids.update(extract_ancestor_ids(tx))
+                        all_ancestor_ids.update(extract_ancestor_ids(tx))
 
                     checkpoint(
-                        f"ANCESTOR_IDS_COLLECTED focal={len(focal_ids)} all={len(all_ids)}"
+                        f"ANCESTOR_IDS_NEEDED observations={len(inside)} "
+                        f"unique_taxa={len(all_ancestor_ids)}"
                     )
 
-                    taxon_lookup = fetch_taxa_by_ids(tuple(sorted(all_ids)))
-                    checkpoint(f"ANCESTOR_LOOKUP_DONE n={len(taxon_lookup)}")
+                    taxon_lookup = fetch_taxa_by_ids(tuple(sorted(all_ancestor_ids)))
 
                     out = []
                     for o in inside:
@@ -417,6 +421,8 @@ with tab_dashboard:
                             ),
                             "familie": rank_from_ancestors(taxon, taxon_lookup, "family"),
                         })
+
+                    checkpoint("FAST_TAXONOMY_DONE")
 
                     df = pd.DataFrame(out)
                     df["datum"] = pd.to_datetime(df["datum"], errors="coerce")
@@ -599,7 +605,7 @@ with tab_dashboard:
             checkpoint("DASHBOARD_RENDER_DONE")
 
 st.caption(
-    "iPad/web prototype v0.9 · taxonomie via ancestors + veilige batches · "
+    "iPad/web prototype v0.10 · snelle taxonomie via /v1/taxa query batches · "
     "geen iNaturalist-analyse vóór je op ‘Analyseer dit gebied’ drukt."
 )
 
