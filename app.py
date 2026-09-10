@@ -110,14 +110,30 @@ with tab_areas:
         st.download_button("⬇️ Gebieden bewaren als GeoJSON", export, "mijn_gebieden.geojson", "application/geo+json")
 
 @st.cache_data(ttl=86400, show_spinner=False)
-def fetch_taxon(taxon_id):
-    try:
-        r = requests.get(f"{TAXA_API}/{int(taxon_id)}", params={"locale":"nl","preferred_place_id":7506}, timeout=20)
-        r.raise_for_status()
-        items = r.json().get("results", [])
-        return items[0] if items else {}
-    except Exception:
-        return {}
+def fetch_taxa_batch(taxon_ids_tuple):
+    """Haal taxa in bundels op; veel sneller dan één API-aanroep per taxon."""
+    ids = [int(x) for x in taxon_ids_tuple if x]
+    result = {}
+    # Houd batches bewust bescheiden voor korte URLs en stabiele API-responses.
+    batch_size = 80
+
+    for start in range(0, len(ids), batch_size):
+        batch = ids[start:start + batch_size]
+        joined = ",".join(str(x) for x in batch)
+        try:
+            r = requests.get(
+                f"{TAXA_API}/{joined}",
+                params={"locale": "nl", "preferred_place_id": 7506},
+                timeout=30,
+            )
+            r.raise_for_status()
+            for taxon in r.json().get("results", []):
+                if taxon.get("id"):
+                    result[int(taxon["id"])] = taxon
+        except Exception:
+            # Een mislukte batch blokkeert de rest van het dashboard niet.
+            continue
+    return result
 
 def rank_name(taxon_record, wanted_rank):
     if taxon_record.get("rank") == wanted_rank:
@@ -190,16 +206,30 @@ with tab_dashboard:
                 st.error(f"iNaturalist kon niet worden bereikt: {e}")
                 st.stop()
 
-        taxon_ids = {(o.get("taxon") or {}).get("id") for o in raw if (o.get("taxon") or {}).get("id")}
-        with st.spinner("Nederlandse namen en taxonomie aanvullen…"):
-            taxon_info = {tid: fetch_taxon(tid) for tid in taxon_ids}
+        # Eerst exact binnen het getekende vlak filteren.
+        # Daardoor halen we alleen taxonomie op voor waarnemingen die echt nodig zijn.
+        inside = []
+        for o in raw:
+            geo = o.get("geojson")
+            coords = geo.get("coordinates") if geo else None
+            if coords and poly.covers(Point(coords[0], coords[1])):
+                inside.append(o)
+
+        if not inside:
+            st.warning("Geen exact binnen dit gebied gelegen waarnemingen gevonden.")
+            st.stop()
+
+        taxon_ids = sorted({
+            (o.get("taxon") or {}).get("id")
+            for o in inside
+            if (o.get("taxon") or {}).get("id")
+        })
+
+        with st.spinner(f"Taxonomie voor {len(taxon_ids)} taxa in batches ophalen…"):
+            taxon_info = fetch_taxa_batch(tuple(taxon_ids))
 
         out = []
-        for o in raw:
-            geo=o.get("geojson")
-            coords=geo.get("coordinates") if geo else None
-            if not coords or not poly.covers(Point(coords[0], coords[1])):
-                continue
+        for o in inside:
             taxon=o.get("taxon") or {}
             full=taxon_info.get(taxon.get("id"), {}) or taxon
             out.append({
@@ -274,4 +304,4 @@ with tab_dashboard:
         if total > 10000:
             st.warning("De zoekopdracht bevat meer dan 10.000 resultaten. Verklein gebied of periode voor volledige dekking.")
 
-st.caption("iPad-prototype v0.2 · Gebieden blijven tijdens de actieve sessie beschikbaar en kunnen als GeoJSON worden geëxporteerd.")
+st.caption("iPad-prototype v0.3 · Gebieden blijven tijdens de actieve sessie beschikbaar en kunnen als GeoJSON worden geëxporteerd.")
