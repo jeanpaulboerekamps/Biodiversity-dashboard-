@@ -304,4 +304,4 @@ with tab_dashboard:
         if total > 10000:
             st.warning("De zoekopdracht bevat meer dan 10.000 resultaten. Verklein gebied of periode voor volledige dekking.")
 
-st.caption("iPad-prototype v0.3 · Gebieden blijven tijdens de actieve sessie beschikbaar en kunnen als GeoJSON worden geëxporteerd.")
+st.caption("iPad-prototype v0.4 · Gebieden blijven tijdens de actieve sessie beschikbaar en kunnen als GeoJSON worden geëxporteerd.")
