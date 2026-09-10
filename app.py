@@ -202,38 +202,52 @@ def fetch_observations(params_tuple):
 
 
 
-def observation_ancestors(obs):
+
+@st.cache_data(ttl=86400, show_spinner=False)
+def fetch_taxa_by_ids(ids_tuple):
     """
-    Vind de volledige ancestor-objecten van het geaccepteerde observation taxon
-    in de identifications die iNaturalist al met de observatie meestuurt.
-    Dit is betrouwbaarder voor orde/familie dan alleen het focal taxon opvragen.
+    Haal taxonrecords op voor meerdere iNaturalist IDs tegelijk.
+    iNaturalist ondersteunt comma-separated IDs op /v1/taxa/{ids}.
     """
-    target = obs.get("taxon") or {}
-    target_id = target.get("id")
-    if not target_id:
-        return []
+    ids = sorted({int(x) for x in ids_tuple if x})
+    result = {}
 
-    for ident in obs.get("identifications") or []:
-        itaxon = ident.get("taxon") or {}
-        ancestors = itaxon.get("ancestors") or []
+    # Ruim onder de bekende grens van ~100 IDs per padrequest.
+    for start in range(0, len(ids), 75):
+        batch = ids[start:start + 75]
+        joined = ",".join(str(x) for x in batch)
+        checkpoint(f"TAXON_LOOKUP batch_start={start} size={len(batch)}")
+        try:
+            r = requests.get(
+                f"{TAXA_API}/{joined}",
+                params={"locale": "nl", "preferred_place_id": 7506},
+                timeout=(10, 30),
+            )
+            r.raise_for_status()
+            for tx in r.json().get("results", []):
+                if tx.get("id"):
+                    result[int(tx["id"])] = tx
+        except Exception as e:
+            log.exception("TAXON_LOOKUP_ERROR %s", e)
 
-        if itaxon.get("id") == target_id:
-            return ancestors + [target]
-
-        ids = [a.get("id") for a in ancestors]
-        if target_id in ids:
-            i = ids.index(target_id)
-            return ancestors[:i] + [target]
-
-    return [target]
+    return result
 
 
-def obs_rank_name(obs, wanted_rank, scientific=False):
-    for taxon in reversed(observation_ancestors(obs)):
-        if taxon.get("rank") == wanted_rank:
+def rank_from_ancestor_ids(taxon, lookup, wanted_rank, scientific=False):
+    """
+    Bepaal orde/familie via taxon.ancestor_ids.
+    Zoek alleen de ancestor-records op die al in batch zijn binnengehaald.
+    """
+    candidates = list(taxon.get("ancestor_ids") or [])
+    if taxon.get("id"):
+        candidates.append(taxon.get("id"))
+
+    for tid in reversed(candidates):
+        tx = lookup.get(int(tid)) if tid is not None else None
+        if tx and tx.get("rank") == wanted_rank:
             if scientific:
-                return taxon.get("name")
-            return taxon.get("preferred_common_name") or taxon.get("name")
+                return tx.get("name")
+            return tx.get("preferred_common_name") or tx.get("name")
     return None
 
 def rank_name(taxon_record, wanted_rank, scientific=False):
@@ -334,15 +348,30 @@ with tab_dashboard:
                         st.warning("Geen exact binnen dit gebied gelegen waarnemingen gevonden.")
                         st.stop()
 
-                    st.write("Taxonomische indeling uit de waarnemingen bepalen…")
-                    checkpoint("ANCESTRY_FROM_IDENTIFICATIONS_START")
-                    out = []
+                    st.write("Taxonomische indeling bepalen…")
+                    checkpoint("ANCESTOR_ID_LOOKUP_START")
 
+                    # Verzamel in één keer alle voorouder-IDs van taxa die werkelijk
+                    # binnen het getekende gebied voorkomen.
+                    all_taxon_ids = set()
+                    for o in inside:
+                        tx = o.get("taxon") or {}
+                        all_taxon_ids.update(tx.get("ancestor_ids") or [])
+                        if tx.get("id"):
+                            all_taxon_ids.add(tx["id"])
+
+                    taxon_lookup = fetch_taxa_by_ids(tuple(sorted(all_taxon_ids)))
+                    checkpoint(f"ANCESTOR_ID_LOOKUP_DONE n={len(taxon_lookup)}")
+
+                    out = []
                     for o in inside:
                         taxon = o.get("taxon") or {}
 
+                        # Gebruik Nederlandse naam uit de taxon lookup als die beschikbaar is.
+                        focal = taxon_lookup.get(taxon.get("id"), {})
                         nl_name = (
-                            taxon.get("preferred_common_name")
+                            focal.get("preferred_common_name")
+                            or taxon.get("preferred_common_name")
                             or taxon.get("name")
                             or "Onbekend"
                         )
@@ -352,12 +381,12 @@ with tab_dashboard:
                             "Nederlandse naam": nl_name,
                             "wetenschappelijke naam": taxon.get("name"),
                             "soortgroep": taxon.get("iconic_taxon_name") or "Onbekend",
-                            "orde": obs_rank_name(o, "order"),
-                            "orde_wetenschappelijk": obs_rank_name(o, "order", scientific=True),
-                            "familie": obs_rank_name(o, "family"),
+                            "orde": rank_from_ancestor_ids(taxon, taxon_lookup, "order"),
+                            "orde_wetenschappelijk": rank_from_ancestor_ids(
+                                taxon, taxon_lookup, "order", scientific=True
+                            ),
+                            "familie": rank_from_ancestor_ids(taxon, taxon_lookup, "family"),
                         })
-
-                    checkpoint("ANCESTRY_FROM_IDENTIFICATIONS_DONE")
 
                     df = pd.DataFrame(out)
                     df["datum"] = pd.to_datetime(df["datum"], errors="coerce")
@@ -528,7 +557,7 @@ with tab_dashboard:
             checkpoint("DASHBOARD_RENDER_DONE")
 
 st.caption(
-    "iPad/web prototype v0.6 · snellere taxonomie via iNaturalist-identificaties · "
+    "iPad/web prototype v0.7 · taxonomie via ancestor_ids + gebundelde iNaturalist lookup · "
     "geen iNaturalist-analyse vóór je op ‘Analyseer dit gebied’ drukt."
 )
 
