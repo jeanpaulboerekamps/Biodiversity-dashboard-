@@ -206,13 +206,11 @@ def fetch_observations(params_tuple):
 @st.cache_data(ttl=86400, show_spinner=False)
 def fetch_taxa_by_ids(ids_tuple):
     """
-    Haal taxonrecords op voor meerdere iNaturalist IDs tegelijk.
-    iNaturalist ondersteunt comma-separated IDs op /v1/taxa/{ids}.
+    Haal taxonrecords in batches op.
     """
     ids = sorted({int(x) for x in ids_tuple if x})
     result = {}
 
-    # Ruim onder de bekende grens van ~100 IDs per padrequest.
     for start in range(0, len(ids), 75):
         batch = ids[start:start + 75]
         joined = ",".join(str(x) for x in batch)
@@ -233,21 +231,56 @@ def fetch_taxa_by_ids(ids_tuple):
     return result
 
 
-def rank_from_ancestor_ids(taxon, lookup, wanted_rank, scientific=False):
+@st.cache_data(ttl=86400, show_spinner=False)
+def build_taxon_lineage_lookup(focal_ids_tuple):
     """
-    Bepaal orde/familie via taxon.ancestor_ids.
-    Zoek alleen de ancestor-records op die al in batch zijn binnengehaald.
+    Bouw de taxonomische stamboom op via parent_id.
+    Dit werkt ook wanneer observation.taxon geen ancestor_ids bevat.
     """
-    candidates = list(taxon.get("ancestor_ids") or [])
-    if taxon.get("id"):
-        candidates.append(taxon.get("id"))
+    focal_ids = sorted({int(x) for x in focal_ids_tuple if x})
+    lookup = {}
+    pending = set(focal_ids)
+    depth = 0
 
-    for tid in reversed(candidates):
-        tx = lookup.get(int(tid)) if tid is not None else None
-        if tx and tx.get("rank") == wanted_rank:
+    while pending and depth < 15:
+        checkpoint(f"LINEAGE_LEVEL depth={depth} pending={len(pending)}")
+        fetched = fetch_taxa_by_ids(tuple(sorted(pending)))
+        lookup.update(fetched)
+
+        next_pending = set()
+        for tx in fetched.values():
+            parent_id = tx.get("parent_id")
+            if parent_id and int(parent_id) not in lookup:
+                next_pending.add(int(parent_id))
+
+        pending = next_pending
+        depth += 1
+
+    checkpoint(f"LINEAGE_DONE taxa={len(lookup)} depth={depth}")
+    return lookup
+
+
+def rank_from_parent_chain(taxon_id, lookup, wanted_rank, scientific=False):
+    """
+    Loop vanaf het waargenomen taxon via parent_id omhoog tot de gewenste rang.
+    """
+    seen = set()
+    current_id = int(taxon_id) if taxon_id else None
+
+    while current_id and current_id not in seen:
+        seen.add(current_id)
+        tx = lookup.get(current_id)
+        if not tx:
+            return None
+
+        if tx.get("rank") == wanted_rank:
             if scientific:
                 return tx.get("name")
             return tx.get("preferred_common_name") or tx.get("name")
+
+        parent_id = tx.get("parent_id")
+        current_id = int(parent_id) if parent_id else None
+
     return None
 
 def rank_name(taxon_record, wanted_rank, scientific=False):
@@ -349,26 +382,23 @@ with tab_dashboard:
                         st.stop()
 
                     st.write("Taxonomische indeling bepalen…")
-                    checkpoint("ANCESTOR_ID_LOOKUP_START")
+                    checkpoint("PARENT_LINEAGE_START")
 
-                    # Verzamel in één keer alle voorouder-IDs van taxa die werkelijk
-                    # binnen het getekende gebied voorkomen.
-                    all_taxon_ids = set()
-                    for o in inside:
-                        tx = o.get("taxon") or {}
-                        all_taxon_ids.update(tx.get("ancestor_ids") or [])
-                        if tx.get("id"):
-                            all_taxon_ids.add(tx["id"])
+                    focal_ids = sorted({
+                        (o.get("taxon") or {}).get("id")
+                        for o in inside
+                        if (o.get("taxon") or {}).get("id")
+                    })
 
-                    taxon_lookup = fetch_taxa_by_ids(tuple(sorted(all_taxon_ids)))
-                    checkpoint(f"ANCESTOR_ID_LOOKUP_DONE n={len(taxon_lookup)}")
+                    taxon_lookup = build_taxon_lineage_lookup(tuple(focal_ids))
+                    checkpoint(f"PARENT_LINEAGE_DONE n={len(taxon_lookup)}")
 
                     out = []
                     for o in inside:
                         taxon = o.get("taxon") or {}
+                        tid = taxon.get("id")
+                        focal = taxon_lookup.get(tid, {}) if tid else {}
 
-                        # Gebruik Nederlandse naam uit de taxon lookup als die beschikbaar is.
-                        focal = taxon_lookup.get(taxon.get("id"), {})
                         nl_name = (
                             focal.get("preferred_common_name")
                             or taxon.get("preferred_common_name")
@@ -381,11 +411,11 @@ with tab_dashboard:
                             "Nederlandse naam": nl_name,
                             "wetenschappelijke naam": taxon.get("name"),
                             "soortgroep": taxon.get("iconic_taxon_name") or "Onbekend",
-                            "orde": rank_from_ancestor_ids(taxon, taxon_lookup, "order"),
-                            "orde_wetenschappelijk": rank_from_ancestor_ids(
-                                taxon, taxon_lookup, "order", scientific=True
+                            "orde": rank_from_parent_chain(tid, taxon_lookup, "order"),
+                            "orde_wetenschappelijk": rank_from_parent_chain(
+                                tid, taxon_lookup, "order", scientific=True
                             ),
-                            "familie": rank_from_ancestor_ids(taxon, taxon_lookup, "family"),
+                            "familie": rank_from_parent_chain(tid, taxon_lookup, "family"),
                         })
 
                     df = pd.DataFrame(out)
@@ -557,7 +587,7 @@ with tab_dashboard:
             checkpoint("DASHBOARD_RENDER_DONE")
 
 st.caption(
-    "iPad/web prototype v0.7 · taxonomie via ancestor_ids + gebundelde iNaturalist lookup · "
+    "iPad/web prototype v0.8 · taxonomie via parent_id-stamboom · "
     "geen iNaturalist-analyse vóór je op ‘Analyseer dit gebied’ drukt."
 )
 
