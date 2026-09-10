@@ -9,7 +9,7 @@ import pandas as pd
 import plotly.express as px
 import requests
 import streamlit as st
-from folium.plugins import Draw
+from folium.plugins import Draw, HeatMap
 from shapely.geometry import Point, shape
 from streamlit_folium import st_folium
 
@@ -410,6 +410,11 @@ with tab_dashboard:
                             or "Onbekend"
                         )
 
+                        geo = o.get("geojson") or {}
+                        coords = geo.get("coordinates") or [None, None]
+                        lon = coords[0] if len(coords) > 0 else None
+                        lat = coords[1] if len(coords) > 1 else None
+
                         out.append({
                             "datum": o.get("observed_on"),
                             "Nederlandse naam": nl_name,
@@ -420,6 +425,8 @@ with tab_dashboard:
                                 taxon, taxon_lookup, "order", scientific=True
                             ),
                             "familie": rank_from_ancestors(taxon, taxon_lookup, "family"),
+                            "lat": lat,
+                            "lon": lon,
                         })
 
                     checkpoint("FAST_TAXONOMY_DONE")
@@ -501,6 +508,56 @@ with tab_dashboard:
                         .reset_index(name="waarnemingen")
                     )
                     pie_chart(fam_counts, "familie", "waarnemingen", "Vlinders uitgesplitst naar familie")
+
+
+            st.subheader("Heatmap van waarnemingen")
+            st.caption(
+                "Donkerdere/intenser gekleurde zones bevatten meer waarnemingen. "
+                "De heatmap gebruikt alleen de locaties binnen het gekozen gebied."
+            )
+
+            heat_df = df.dropna(subset=["lat", "lon"]).copy()
+            if not heat_df.empty:
+                # Centreer de kaart op het onderzoeksgebied.
+                geom = st.session_state.areas[active]
+                poly = shape(geom)
+                c = poly.centroid
+
+                heat_map = folium.Map(
+                    location=[c.y, c.x],
+                    zoom_start=16,
+                    tiles="OpenStreetMap",
+                    control_scale=True,
+                )
+
+                # Toon de grens van het gekozen gebied.
+                folium.GeoJson(
+                    geom,
+                    name="Onderzoeksgebied",
+                    style_function=lambda _: {
+                        "weight": 3,
+                        "fillOpacity": 0.04,
+                    },
+                ).add_to(heat_map)
+
+                heat_points = heat_df[["lat", "lon"]].astype(float).values.tolist()
+                HeatMap(
+                    heat_points,
+                    radius=18,
+                    blur=14,
+                    min_opacity=0.25,
+                    max_zoom=18,
+                ).add_to(heat_map)
+
+                st_folium(
+                    heat_map,
+                    height=520,
+                    use_container_width=True,
+                    key="heatmap_map",
+                    returned_objects=[],
+                )
+            else:
+                st.info("Voor deze selectie zijn geen bruikbare coördinaten beschikbaar.")
 
             st.subheader("Waarnemingen en taxa per jaar")
             yearly = (
@@ -605,7 +662,7 @@ with tab_dashboard:
             checkpoint("DASHBOARD_RENDER_DONE")
 
 st.caption(
-    "iPad/web prototype v0.10 · snelle taxonomie via /v1/taxa query batches · "
+    "iPad/web prototype v0.11 · snelle taxonomie + interactieve heatmap · "
     "geen iNaturalist-analyse vóór je op ‘Analyseer dit gebied’ drukt."
 )
 
