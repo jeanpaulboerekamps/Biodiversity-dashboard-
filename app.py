@@ -560,6 +560,20 @@ with tab_dashboard:
 
             quality = st.selectbox("Kwaliteit", ["Alle", "Research grade", "Needs ID", "Casual"])
 
+        overview_choice = st.selectbox(
+            "Kies overzicht",
+            [
+                "Taxonomische samenstelling",
+                "Heatmap",
+                "Per jaar",
+                "Gemiddeld per kalendermaand",
+                "Cumulatief aantal soorten per kwartaal",
+                "Tijdlijn nieuwe soorten",
+                "Meest waargenomen soorten",
+            ],
+            help="Alleen het gekozen overzicht wordt berekend en weergegeven.",
+        )
+
         if st.button("🔎 Analyseer dit gebied", type="primary"):
             try:
                 checkpoint("ANALYSIS_START")
@@ -613,22 +627,26 @@ with tab_dashboard:
                         st.warning("Geen exact binnen dit gebied gelegen waarnemingen gevonden.")
                         st.stop()
 
-                    st.write("Taxonomische indeling bepalen…")
-                    checkpoint("FAST_TAXONOMY_START")
+                    need_taxonomy = overview_choice in {
+                        "Taxonomische samenstelling",
+                        "Tijdlijn nieuwe soorten",
+                    }
 
-                    # Alleen de vooroudertaxa verzamelen die daadwerkelijk nodig zijn
-                    # voor de waarnemingen binnen het getekende gebied.
-                    all_ancestor_ids = set()
-                    for o in inside:
-                        tx = o.get("taxon") or {}
-                        all_ancestor_ids.update(extract_ancestor_ids(tx))
+                    taxon_lookup = {}
+                    if need_taxonomy:
+                        st.write("Taxonomische indeling bepalen…")
+                        checkpoint("FAST_TAXONOMY_START")
 
-                    checkpoint(
-                        f"ANCESTOR_IDS_NEEDED observations={len(inside)} "
-                        f"unique_taxa={len(all_ancestor_ids)}"
-                    )
+                        all_ancestor_ids = set()
+                        for o in inside:
+                            tx = o.get("taxon") or {}
+                            all_ancestor_ids.update(extract_ancestor_ids(tx))
 
-                    taxon_lookup = fetch_taxa_by_ids(tuple(sorted(all_ancestor_ids)))
+                        checkpoint(
+                            f"ANCESTOR_IDS_NEEDED observations={len(inside)} "
+                            f"unique_taxa={len(all_ancestor_ids)}"
+                        )
+                        taxon_lookup = fetch_taxa_by_ids(tuple(sorted(all_ancestor_ids)))
 
                     out = []
                     for o in inside:
@@ -648,9 +666,11 @@ with tab_dashboard:
                         lon = coords[0] if len(coords) > 0 else None
                         lat = coords[1] if len(coords) > 1 else None
 
-                        species_id = rank_id_from_ancestors(taxon, taxon_lookup, "species")
-                        if species_id is None and taxon.get("rank") == "species" and taxon.get("id"):
+                        species_id = None
+                        if taxon.get("rank") == "species" and taxon.get("id"):
                             species_id = int(taxon["id"])
+                        elif need_taxonomy:
+                            species_id = rank_id_from_ancestors(taxon, taxon_lookup, "species")
 
                         species_rec = taxon_lookup.get(species_id, {}) if species_id else {}
                         species_nl = species_rec.get("preferred_common_name") or nl_name
@@ -677,11 +697,18 @@ with tab_dashboard:
                                 if o.get("id") else None
                             ),
                             "soortgroep": taxon.get("iconic_taxon_name") or "Onbekend",
-                            "orde": rank_from_ancestors(taxon, taxon_lookup, "order"),
-                            "orde_wetenschappelijk": rank_from_ancestors(
-                                taxon, taxon_lookup, "order", scientific=True
+                            "orde": (
+                                rank_from_ancestors(taxon, taxon_lookup, "order")
+                                if need_taxonomy else None
                             ),
-                            "familie": rank_from_ancestors(taxon, taxon_lookup, "family"),
+                            "orde_wetenschappelijk": (
+                                rank_from_ancestors(taxon, taxon_lookup, "order", scientific=True)
+                                if need_taxonomy else None
+                            ),
+                            "familie": (
+                                rank_from_ancestors(taxon, taxon_lookup, "family")
+                                if need_taxonomy else None
+                            ),
                             "lat": lat,
                             "lon": lon,
                         })
@@ -702,6 +729,7 @@ with tab_dashboard:
                         "end_year": int(end_year),
                         "username": username.strip(),
                         "mode": mode,
+                        "overview_choice": overview_choice,
                     }
                     st.session_state.timeline_firsts = {}
                     st.session_state.timeline_key = None
@@ -725,341 +753,354 @@ with tab_dashboard:
             c.metric("Soortgroepen", df["soortgroep"].nunique())
             d.metric("Jaren", df["jaar"].nunique())
 
-            st.subheader("Samenstelling per soortgroep")
-            group_counts = (
-                df["soortgroep"].fillna("Onbekend")
-                .value_counts()
-                .rename_axis("soortgroep")
-                .reset_index(name="waarnemingen")
-            )
-            pie_chart(group_counts, "soortgroep", "waarnemingen", "Waarnemingen per soortgroep")
+            selected_overview = meta.get("overview_choice", overview_choice)
 
-            insects = df[df["soortgroep"].eq("Insecta")].copy()
-
-            if not insects.empty:
-                unknown_order_pct = insects["orde"].isna().mean() * 100
-                unknown_family_pct = insects["familie"].isna().mean() * 100
-                checkpoint(
-                    f"TAXONOMY_QUALITY insects={len(insects)} "
-                    f"unknown_order_pct={unknown_order_pct:.1f} "
-                    f"unknown_family_pct={unknown_family_pct:.1f}"
-                )
-                if unknown_order_pct > 20:
-                    st.warning(
-                        f"Taxonomische controle: {unknown_order_pct:.1f}% van de insectwaarnemingen "
-                        "heeft nog geen herkende orde. Dit wordt ook in de Streamlit-log geregistreerd."
-                    )
-                st.subheader("Insecten per orde")
-                order_counts = (
-                    insects["orde"].fillna("Onbekende orde")
+            if selected_overview == "Taxonomische samenstelling":
+                st.subheader("Samenstelling per soortgroep")
+                group_counts = (
+                    df["soortgroep"].fillna("Onbekend")
                     .value_counts()
-                    .rename_axis("orde")
+                    .rename_axis("soortgroep")
                     .reset_index(name="waarnemingen")
                 )
-                pie_chart(order_counts, "orde", "waarnemingen", "Insecten uitgesplitst naar orde")
+                pie_chart(group_counts, "soortgroep", "waarnemingen", "Waarnemingen per soortgroep")
 
-                leps = insects[insects["orde_wetenschappelijk"].eq("Lepidoptera")].copy()
+                insects = df[df["soortgroep"].eq("Insecta")].copy()
 
-                if not leps.empty:
-                    st.subheader("Vlinders per familie")
-                    fam_counts = (
-                        leps["familie"].fillna("Onbekende familie")
+                if not insects.empty:
+                    unknown_order_pct = insects["orde"].isna().mean() * 100
+                    unknown_family_pct = insects["familie"].isna().mean() * 100
+                    checkpoint(
+                        f"TAXONOMY_QUALITY insects={len(insects)} "
+                        f"unknown_order_pct={unknown_order_pct:.1f} "
+                        f"unknown_family_pct={unknown_family_pct:.1f}"
+                    )
+                    if unknown_order_pct > 20:
+                        st.warning(
+                            f"Taxonomische controle: {unknown_order_pct:.1f}% van de insectwaarnemingen "
+                            "heeft nog geen herkende orde. Dit wordt ook in de Streamlit-log geregistreerd."
+                        )
+                    st.subheader("Insecten per orde")
+                    order_counts = (
+                        insects["orde"].fillna("Onbekende orde")
                         .value_counts()
-                        .rename_axis("familie")
+                        .rename_axis("orde")
                         .reset_index(name="waarnemingen")
                     )
-                    pie_chart(fam_counts, "familie", "waarnemingen", "Vlinders uitgesplitst naar familie")
+                    pie_chart(order_counts, "orde", "waarnemingen", "Insecten uitgesplitst naar orde")
+
+                    leps = insects[insects["orde_wetenschappelijk"].eq("Lepidoptera")].copy()
+
+                    if not leps.empty:
+                        st.subheader("Vlinders per familie")
+                        fam_counts = (
+                            leps["familie"].fillna("Onbekende familie")
+                            .value_counts()
+                            .rename_axis("familie")
+                            .reset_index(name="waarnemingen")
+                        )
+                        pie_chart(fam_counts, "familie", "waarnemingen", "Vlinders uitgesplitst naar familie")
 
 
-            st.subheader("Heatmap van waarnemingen")
-            st.caption(
-                "Donkerdere/intenser gekleurde zones bevatten meer waarnemingen. "
-                "De heatmap gebruikt alleen de locaties binnen het gekozen gebied."
-            )
-
-            heat_df = df.dropna(subset=["lat", "lon"]).copy()
-            if not heat_df.empty:
-                # Centreer de kaart op het onderzoeksgebied.
-                geom = st.session_state.areas[active]
-                poly = shape(geom)
-                c = poly.centroid
-
-                heat_map = folium.Map(
-                    location=[c.y, c.x],
-                    zoom_start=16,
-                    tiles="OpenStreetMap",
-                    control_scale=True,
+            if selected_overview == "Heatmap":
+                st.subheader("Heatmap van waarnemingen")
+                st.caption(
+                    "Donkerdere/intenser gekleurde zones bevatten meer waarnemingen. "
+                    "De heatmap gebruikt alleen de locaties binnen het gekozen gebied."
                 )
 
-                # Toon de grens van het gekozen gebied.
-                folium.GeoJson(
-                    geom,
-                    name="Onderzoeksgebied",
-                    style_function=lambda _: {
-                        "weight": 3,
-                        "fillOpacity": 0.04,
-                    },
-                ).add_to(heat_map)
+                heat_df = df.dropna(subset=["lat", "lon"]).copy()
+                if not heat_df.empty:
+                    # Centreer de kaart op het onderzoeksgebied.
+                    geom = st.session_state.areas[active]
+                    poly = shape(geom)
+                    c = poly.centroid
 
-                heat_points = heat_df[["lat", "lon"]].astype(float).values.tolist()
-                HeatMap(
-                    heat_points,
-                    radius=18,
-                    blur=14,
-                    min_opacity=0.25,
-                    max_zoom=18,
-                ).add_to(heat_map)
-
-                st_folium(
-                    heat_map,
-                    height=520,
-                    use_container_width=True,
-                    key="heatmap_map",
-                    returned_objects=[],
-                )
-            else:
-                st.info("Voor deze selectie zijn geen bruikbare coördinaten beschikbaar.")
-
-            st.subheader("Waarnemingen en taxa per jaar")
-            yearly = (
-                df.groupby("jaar")
-                .agg(
-                    waarnemingen=("Nederlandse naam", "size"),
-                    taxa=("wetenschappelijke naam", "nunique"),
-                )
-                .reset_index()
-            )
-            fig_year = px.bar(
-                yearly,
-                x="jaar",
-                y=["waarnemingen", "taxa"],
-                barmode="group",
-                labels={"value": "Aantal", "jaar": "Jaar", "variable": ""},
-            )
-            fig_year.update_layout(legend_title_text="")
-            st.plotly_chart(fig_year, use_container_width=True)
-
-            st.subheader("Gemiddeld per kalendermaand")
-            years = list(range(meta["start_year"], meta["end_year"] + 1))
-            idx = pd.MultiIndex.from_product([years, range(1, 13)], names=["jaar", "maand"])
-
-            obs_month = df.groupby(["jaar", "maand"]).size().reindex(idx, fill_value=0)
-            taxa_month = (
-                df.groupby(["jaar", "maand"])["wetenschappelijke naam"]
-                .nunique()
-                .reindex(idx, fill_value=0)
-            )
-
-            monthly = pd.DataFrame({
-                "waarnemingen": obs_month.groupby("maand").mean(),
-                "taxa": taxa_month.groupby("maand").mean(),
-            }).reset_index()
-
-            maandnamen = {
-                1: "Jan", 2: "Feb", 3: "Mrt", 4: "Apr", 5: "Mei", 6: "Jun",
-                7: "Jul", 8: "Aug", 9: "Sep", 10: "Okt", 11: "Nov", 12: "Dec"
-            }
-            monthly["kalendermaand"] = monthly["maand"].map(maandnamen)
-
-            fig_month = px.bar(
-                monthly,
-                x="kalendermaand",
-                y=["waarnemingen", "taxa"],
-                barmode="group",
-                labels={"value": "Gemiddeld aantal", "kalendermaand": "Maand", "variable": ""},
-            )
-            fig_month.update_layout(legend_title_text="")
-            st.plotly_chart(fig_month, use_container_width=True)
-
-            st.subheader("Cumulatief aantal soorten per kwartaal")
-            st.caption(
-                "Elke staaf toont hoeveel verschillende soorten er tot en met dat kwartaal "
-                "in totaal zijn waargenomen. Het bovenste deel zijn de soorten die in dat "
-                "kwartaal voor het eerst zijn waargenomen."
-            )
-
-            species_df = (
-                df.dropna(subset=["wetenschappelijke naam"])
-                .sort_values("datum")
-                .copy()
-            )
-
-            # Eerste waarneming van elke soort binnen de geselecteerde periode.
-            first_seen = (
-                species_df
-                .drop_duplicates("wetenschappelijke naam", keep="first")
-                [["datum", "wetenschappelijke naam"]]
-            )
-            first_seen["jaar"] = first_seen["datum"].dt.year.astype(int)
-            first_seen["kwartaal"] = first_seen["datum"].dt.quarter.astype(int)
-
-            # Alle kwartalen in de geselecteerde periode, ook kwartalen zonder nieuwe soorten.
-            quarter_rows = []
-            for yr in range(meta["start_year"], meta["end_year"] + 1):
-                for q in range(1, 5):
-                    quarter_rows.append({"jaar": yr, "kwartaal": q})
-            quarterly = pd.DataFrame(quarter_rows)
-
-            new_counts = (
-                first_seen.groupby(["jaar", "kwartaal"])
-                .size()
-                .reset_index(name="nieuwe soorten")
-            )
-
-            quarterly = quarterly.merge(
-                new_counts,
-                on=["jaar", "kwartaal"],
-                how="left",
-            )
-            quarterly["nieuwe soorten"] = quarterly["nieuwe soorten"].fillna(0).astype(int)
-
-            # Cumulatief aantal soorten tot en met ieder kwartaal.
-            quarterly["totaal soorten"] = quarterly["nieuwe soorten"].cumsum()
-
-            # Onderste segment: soorten die al vóór dit kwartaal bekend waren.
-            quarterly["eerder bekende soorten"] = (
-                quarterly["totaal soorten"] - quarterly["nieuwe soorten"]
-            )
-
-            quarterly["periode"] = (
-                quarterly["jaar"].astype(str)
-                + " Q"
-                + quarterly["kwartaal"].astype(str)
-            )
-
-            q_long = quarterly.melt(
-                id_vars=["periode", "totaal soorten"],
-                value_vars=["eerder bekende soorten", "nieuwe soorten"],
-                var_name="categorie",
-                value_name="aantal",
-            )
-
-            q_long["categorie"] = pd.Categorical(
-                q_long["categorie"],
-                categories=["eerder bekende soorten", "nieuwe soorten"],
-                ordered=True,
-            )
-            q_long = q_long.sort_values(["periode", "categorie"])
-
-            # Bouw de gestapelde staaf expliciet op, zodat het rode segment
-            # gegarandeerd boven op het donkerblauwe segment staat.
-            fig_quarter = go.Figure()
-
-            fig_quarter.add_bar(
-                x=quarterly["periode"],
-                y=quarterly["eerder bekende soorten"],
-                name="Eerder bekende soorten",
-                marker_color="#1f4e79",
-                text=quarterly["eerder bekende soorten"].astype(str),
-                textposition="inside",
-            )
-
-            fig_quarter.add_bar(
-                x=quarterly["periode"],
-                y=quarterly["nieuwe soorten"],
-                name="Nieuwe soorten",
-                marker_color="#d62728",
-                text=quarterly["nieuwe soorten"].astype(str),
-                textposition="inside",
-            )
-
-            # Cumulatief totaal boven iedere gestapelde staaf.
-            fig_quarter.add_scatter(
-                x=quarterly["periode"],
-                y=quarterly["totaal soorten"],
-                mode="text",
-                text=quarterly["totaal soorten"].astype(str),
-                textposition="top center",
-                name="Totaal",
-                showlegend=False,
-                hoverinfo="skip",
-            )
-
-            fig_quarter.update_layout(
-                barmode="stack",
-                legend_title_text="",
-                xaxis_title="Kwartaal",
-                yaxis_title="Cumulatief aantal soorten",
-            )
-
-            st.plotly_chart(fig_quarter, use_container_width=True)
-
-            st.subheader("Chronologische tijdlijn van nieuwe soorten")
-            st.caption(
-                "De kaarten staan op datum van de eerste waarneming van die soort in het gekozen "
-                "gebied binnen de geselecteerde periode. Blauw = nieuw voor het gebied. "
-                "Rood = deze waarneming is óók je vroegste iNaturalist-waarneming van die soort. "
-                "Tik op een kaart om de oorspronkelijke iNaturalist-waarneming te openen."
-            )
-
-            timeline = (
-                df.dropna(subset=["species_id", "observation_id"])
-                .sort_values(["datum", "observation_id"])
-                .drop_duplicates("species_id", keep="first")
-                .copy()
-            )
-            timeline["species_id"] = timeline["species_id"].astype(int)
-            timeline = timeline.sort_values(["datum", "species_nl"])
-
-            timeline_key = (
-                meta.get("username"),
-                tuple(timeline["species_id"].tolist()),
-            )
-
-            if meta.get("mode") == "Mijn waarnemingen":
-                if st.session_state.timeline_key != timeline_key:
-                    st.info(
-                        "Voor de rode omlijning moet de app éénmalig je vroegste iNaturalist-"
-                        "waarneming voor deze soorten bepalen. Dit resultaat wordt daarna gecachet."
+                    heat_map = folium.Map(
+                        location=[c.y, c.x],
+                        zoom_start=16,
+                        tiles="OpenStreetMap",
+                        control_scale=True,
                     )
-                    if st.button(
-                        "🔎 Bepaal mijn eerste iNaturalist-waarnemingen",
-                        key="build_lifelist_timeline",
-                    ):
-                        with st.spinner("Persoonlijke eerste waarnemingen bepalen…"):
-                            st.session_state.timeline_firsts = fetch_personal_first_observations(
-                                meta.get("username") or "",
-                                tuple(timeline["species_id"].tolist()),
-                            )
-                            st.session_state.timeline_key = timeline_key
-                        st.rerun()
 
-                personal_firsts = (
-                    st.session_state.timeline_firsts
-                    if st.session_state.timeline_key == timeline_key
-                    else {}
+                    # Toon de grens van het gekozen gebied.
+                    folium.GeoJson(
+                        geom,
+                        name="Onderzoeksgebied",
+                        style_function=lambda _: {
+                            "weight": 3,
+                            "fillOpacity": 0.04,
+                        },
+                    ).add_to(heat_map)
+
+                    heat_points = heat_df[["lat", "lon"]].astype(float).values.tolist()
+                    HeatMap(
+                        heat_points,
+                        radius=18,
+                        blur=14,
+                        min_opacity=0.25,
+                        max_zoom=18,
+                    ).add_to(heat_map)
+
+                    st_folium(
+                        heat_map,
+                        height=520,
+                        use_container_width=True,
+                        key="heatmap_map",
+                        returned_objects=[],
+                    )
+                else:
+                    st.info("Voor deze selectie zijn geen bruikbare coördinaten beschikbaar.")
+
+            if selected_overview == "Per jaar":
+                st.subheader("Waarnemingen en taxa per jaar")
+                yearly = (
+                    df.groupby("jaar")
+                    .agg(
+                        waarnemingen=("Nederlandse naam", "size"),
+                        taxa=("wetenschappelijke naam", "nunique"),
+                    )
+                    .reset_index()
                 )
-            else:
-                personal_firsts = {}
-                st.info(
-                    "De rode omlijning is alleen beschikbaar wanneer je analyseert met "
-                    "‘Mijn waarnemingen’. In ‘Alle waarnemers’ wordt de tijdlijn blauw weergegeven."
+                fig_year = px.bar(
+                    yearly,
+                    x="jaar",
+                    y=["waarnemingen", "taxa"],
+                    barmode="group",
+                    labels={"value": "Aantal", "jaar": "Jaar", "variable": ""},
+                )
+                fig_year.update_layout(legend_title_text="")
+                st.plotly_chart(fig_year, use_container_width=True)
+
+            if selected_overview == "Gemiddeld per kalendermaand":
+                st.subheader("Gemiddeld per kalendermaand")
+                years = list(range(meta["start_year"], meta["end_year"] + 1))
+                idx = pd.MultiIndex.from_product([years, range(1, 13)], names=["jaar", "maand"])
+
+                obs_month = df.groupby(["jaar", "maand"]).size().reindex(idx, fill_value=0)
+                taxa_month = (
+                    df.groupby(["jaar", "maand"])["wetenschappelijke naam"]
+                    .nunique()
+                    .reindex(idx, fill_value=0)
                 )
 
-            st.markdown(
-                '<div style="font-size:12px;margin-bottom:4px;">'
-                '<span style="display:inline-block;width:12px;height:12px;border:3px solid #2b6cb0;'
-                'border-radius:3px;vertical-align:-2px;margin-right:5px;"></span>Nieuw voor gebied&nbsp;&nbsp;&nbsp;'
-                '<span style="display:inline-block;width:12px;height:12px;border:3px solid #d62728;'
-                'border-radius:3px;vertical-align:-2px;margin-right:5px;"></span>Eerste persoonlijke iNaturalist-waarneming'
-                '</div>',
-                unsafe_allow_html=True,
-            )
+                monthly = pd.DataFrame({
+                    "waarnemingen": obs_month.groupby("maand").mean(),
+                    "taxa": taxa_month.groupby("maand").mean(),
+                }).reset_index()
 
-            st.markdown(timeline_html(timeline, personal_firsts), unsafe_allow_html=True)
+                maandnamen = {
+                    1: "Jan", 2: "Feb", 3: "Mrt", 4: "Apr", 5: "Mei", 6: "Jun",
+                    7: "Jul", 8: "Aug", 9: "Sep", 10: "Okt", 11: "Nov", 12: "Dec"
+                }
+                monthly["kalendermaand"] = monthly["maand"].map(maandnamen)
 
-            st.subheader("Meest waargenomen soorten")
-            top = (
-                df.groupby(
-                    ["Nederlandse naam", "wetenschappelijke naam"],
-                    dropna=False,
+                fig_month = px.bar(
+                    monthly,
+                    x="kalendermaand",
+                    y=["waarnemingen", "taxa"],
+                    barmode="group",
+                    labels={"value": "Gemiddeld aantal", "kalendermaand": "Maand", "variable": ""},
                 )
-                .size()
-                .reset_index(name="waarnemingen")
-                .sort_values("waarnemingen", ascending=False)
-                .head(30)
-            )
-            st.dataframe(top, use_container_width=True, hide_index=True)
+                fig_month.update_layout(legend_title_text="")
+                st.plotly_chart(fig_month, use_container_width=True)
+
+            if selected_overview == "Cumulatief aantal soorten per kwartaal":
+                st.subheader("Cumulatief aantal soorten per kwartaal")
+                st.caption(
+                    "Elke staaf toont hoeveel verschillende soorten er tot en met dat kwartaal "
+                    "in totaal zijn waargenomen. Het bovenste deel zijn de soorten die in dat "
+                    "kwartaal voor het eerst zijn waargenomen."
+                )
+
+                species_df = (
+                    df.dropna(subset=["wetenschappelijke naam"])
+                    .sort_values("datum")
+                    .copy()
+                )
+
+                # Eerste waarneming van elke soort binnen de geselecteerde periode.
+                first_seen = (
+                    species_df
+                    .drop_duplicates("wetenschappelijke naam", keep="first")
+                    [["datum", "wetenschappelijke naam"]]
+                )
+                first_seen["jaar"] = first_seen["datum"].dt.year.astype(int)
+                first_seen["kwartaal"] = first_seen["datum"].dt.quarter.astype(int)
+
+                # Alle kwartalen in de geselecteerde periode, ook kwartalen zonder nieuwe soorten.
+                quarter_rows = []
+                for yr in range(meta["start_year"], meta["end_year"] + 1):
+                    for q in range(1, 5):
+                        quarter_rows.append({"jaar": yr, "kwartaal": q})
+                quarterly = pd.DataFrame(quarter_rows)
+
+                new_counts = (
+                    first_seen.groupby(["jaar", "kwartaal"])
+                    .size()
+                    .reset_index(name="nieuwe soorten")
+                )
+
+                quarterly = quarterly.merge(
+                    new_counts,
+                    on=["jaar", "kwartaal"],
+                    how="left",
+                )
+                quarterly["nieuwe soorten"] = quarterly["nieuwe soorten"].fillna(0).astype(int)
+
+                # Cumulatief aantal soorten tot en met ieder kwartaal.
+                quarterly["totaal soorten"] = quarterly["nieuwe soorten"].cumsum()
+
+                # Onderste segment: soorten die al vóór dit kwartaal bekend waren.
+                quarterly["eerder bekende soorten"] = (
+                    quarterly["totaal soorten"] - quarterly["nieuwe soorten"]
+                )
+
+                quarterly["periode"] = (
+                    quarterly["jaar"].astype(str)
+                    + " Q"
+                    + quarterly["kwartaal"].astype(str)
+                )
+
+                q_long = quarterly.melt(
+                    id_vars=["periode", "totaal soorten"],
+                    value_vars=["eerder bekende soorten", "nieuwe soorten"],
+                    var_name="categorie",
+                    value_name="aantal",
+                )
+
+                q_long["categorie"] = pd.Categorical(
+                    q_long["categorie"],
+                    categories=["eerder bekende soorten", "nieuwe soorten"],
+                    ordered=True,
+                )
+                q_long = q_long.sort_values(["periode", "categorie"])
+
+                # Bouw de gestapelde staaf expliciet op, zodat het rode segment
+                # gegarandeerd boven op het donkerblauwe segment staat.
+                fig_quarter = go.Figure()
+
+                fig_quarter.add_bar(
+                    x=quarterly["periode"],
+                    y=quarterly["eerder bekende soorten"],
+                    name="Eerder bekende soorten",
+                    marker_color="#1f4e79",
+                    text=quarterly["eerder bekende soorten"].astype(str),
+                    textposition="inside",
+                )
+
+                fig_quarter.add_bar(
+                    x=quarterly["periode"],
+                    y=quarterly["nieuwe soorten"],
+                    name="Nieuwe soorten",
+                    marker_color="#d62728",
+                    text=quarterly["nieuwe soorten"].astype(str),
+                    textposition="inside",
+                )
+
+                # Cumulatief totaal boven iedere gestapelde staaf.
+                fig_quarter.add_scatter(
+                    x=quarterly["periode"],
+                    y=quarterly["totaal soorten"],
+                    mode="text",
+                    text=quarterly["totaal soorten"].astype(str),
+                    textposition="top center",
+                    name="Totaal",
+                    showlegend=False,
+                    hoverinfo="skip",
+                )
+
+                fig_quarter.update_layout(
+                    barmode="stack",
+                    legend_title_text="",
+                    xaxis_title="Kwartaal",
+                    yaxis_title="Cumulatief aantal soorten",
+                )
+
+                st.plotly_chart(fig_quarter, use_container_width=True)
+
+            if selected_overview == "Tijdlijn nieuwe soorten":
+                st.subheader("Chronologische tijdlijn van nieuwe soorten")
+                st.caption(
+                    "De kaarten staan op datum van de eerste waarneming van die soort in het gekozen "
+                    "gebied binnen de geselecteerde periode. Blauw = nieuw voor het gebied. "
+                    "Rood = deze waarneming is óók je vroegste iNaturalist-waarneming van die soort. "
+                    "Tik op een kaart om de oorspronkelijke iNaturalist-waarneming te openen."
+                )
+
+                timeline = (
+                    df.dropna(subset=["species_id", "observation_id"])
+                    .sort_values(["datum", "observation_id"])
+                    .drop_duplicates("species_id", keep="first")
+                    .copy()
+                )
+                timeline["species_id"] = timeline["species_id"].astype(int)
+                # Meest recente nieuwe soort eerst; daarna terug in de tijd scrollen.
+                timeline = timeline.sort_values(
+                    ["datum", "species_nl"],
+                    ascending=[False, True],
+                )
+
+                timeline_key = (
+                    meta.get("username"),
+                    tuple(timeline["species_id"].tolist()),
+                )
+
+                if meta.get("mode") == "Mijn waarnemingen":
+                    if st.session_state.timeline_key != timeline_key:
+                        st.info(
+                            "Voor de rode omlijning moet de app éénmalig je vroegste iNaturalist-"
+                            "waarneming voor deze soorten bepalen. Dit resultaat wordt daarna gecachet."
+                        )
+                        if st.button(
+                            "🔎 Bepaal mijn eerste iNaturalist-waarnemingen",
+                            key="build_lifelist_timeline",
+                        ):
+                            with st.spinner("Persoonlijke eerste waarnemingen bepalen…"):
+                                st.session_state.timeline_firsts = fetch_personal_first_observations(
+                                    meta.get("username") or "",
+                                    tuple(timeline["species_id"].tolist()),
+                                )
+                                st.session_state.timeline_key = timeline_key
+                            st.rerun()
+
+                    personal_firsts = (
+                        st.session_state.timeline_firsts
+                        if st.session_state.timeline_key == timeline_key
+                        else {}
+                    )
+                else:
+                    personal_firsts = {}
+                    st.info(
+                        "De rode omlijning is alleen beschikbaar wanneer je analyseert met "
+                        "‘Mijn waarnemingen’. In ‘Alle waarnemers’ wordt de tijdlijn blauw weergegeven."
+                    )
+
+                st.markdown(
+                    '<div style="font-size:12px;margin-bottom:4px;">'
+                    '<span style="display:inline-block;width:12px;height:12px;border:3px solid #2b6cb0;'
+                    'border-radius:3px;vertical-align:-2px;margin-right:5px;"></span>Nieuw voor gebied&nbsp;&nbsp;&nbsp;'
+                    '<span style="display:inline-block;width:12px;height:12px;border:3px solid #d62728;'
+                    'border-radius:3px;vertical-align:-2px;margin-right:5px;"></span>Eerste persoonlijke iNaturalist-waarneming'
+                    '</div>',
+                    unsafe_allow_html=True,
+                )
+
+                st.markdown(timeline_html(timeline, personal_firsts), unsafe_allow_html=True)
+
+            if selected_overview == "Meest waargenomen soorten":
+                st.subheader("Meest waargenomen soorten")
+                top = (
+                    df.groupby(
+                        ["Nederlandse naam", "wetenschappelijke naam"],
+                        dropna=False,
+                    )
+                    .size()
+                    .reset_index(name="waarnemingen")
+                    .sort_values("waarnemingen", ascending=False)
+                    .head(30)
+                )
+                st.dataframe(top, use_container_width=True, hide_index=True)
 
             if meta.get("total", 0) > 10000:
                 st.warning(
@@ -1070,7 +1111,7 @@ with tab_dashboard:
             checkpoint("DASHBOARD_RENDER_DONE")
 
 st.caption(
-    "iPad/web prototype v0.18 · snelle taxonomie + interactieve heatmap · "
+    "iPad/web prototype v0.19 · snelle taxonomie + interactieve heatmap · "
     "geen iNaturalist-analyse vóór je op ‘Analyseer dit gebied’ drukt."
 )
 
