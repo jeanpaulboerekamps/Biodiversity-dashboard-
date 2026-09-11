@@ -541,6 +541,9 @@ def rank_id_from_ancestors(taxon, lookup, wanted_rank):
 
 @st.cache_data(ttl=86400, show_spinner=False)
 def fetch_personal_first_observations(username, species_ids_tuple):
+    if not (username or "").strip():
+        return {}
+
     species_ids = sorted({int(x) for x in species_ids_tuple if x})
     firsts = {}
     chunk_size = 100
@@ -715,6 +718,19 @@ with tab_dashboard:
         )
 
         if st.button("🔎 Analyseer dit gebied", type="primary"):
+            # Persoonlijke overzichten hebben een iNaturalist-gebruikersnaam nodig.
+            # Target soorten gebruikt algemene openbare waarnemingen en vormt daarop een uitzondering.
+            if (
+                mode == "Mijn waarnemingen"
+                and overview_choice != "Target soorten"
+                and not username.strip()
+            ):
+                st.error(
+                    "Vul eerst je iNaturalist-gebruikersnaam in, of kies "
+                    "‘Alle waarnemers’."
+                )
+                st.stop()
+
             try:
                 checkpoint("ANALYSIS_START")
 
@@ -1321,7 +1337,7 @@ with tab_dashboard:
             checkpoint("DASHBOARD_RENDER_DONE")
 
 st.caption(
-    "publieke webapp v0.22 · snelle taxonomie + interactieve heatmap · "
+    "publieke webapp v0.23 · snelle taxonomie + interactieve heatmap · "
     "geen iNaturalist-analyse vóór je op ‘Analyseer dit gebied’ drukt."
 )
 
