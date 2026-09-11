@@ -1,5 +1,6 @@
 from datetime import date
 import json
+import html
 import logging
 import sys
 import time
@@ -63,6 +64,10 @@ if "analysis_df" not in st.session_state:
     st.session_state.analysis_df = None
 if "analysis_meta" not in st.session_state:
     st.session_state.analysis_meta = {}
+if "timeline_firsts" not in st.session_state:
+    st.session_state.timeline_firsts = {}
+if "timeline_key" not in st.session_state:
+    st.session_state.timeline_key = None
 
 st.title("🌿 Mijn Biodiversiteit")
 st.caption("Teken een tuin, park, natuurgebied of ander onderzoeksgebied en analyseer iNaturalist-waarnemingen.")
@@ -384,6 +389,132 @@ def rank_from_ancestors(taxon, lookup, wanted_rank, scientific=False):
             return tx.get("preferred_common_name") or tx.get("name")
     return None
 
+
+def rank_id_from_ancestors(taxon, lookup, wanted_rank):
+    for tid in reversed(extract_ancestor_ids(taxon)):
+        tx = lookup.get(int(tid))
+        if tx and tx.get("rank") == wanted_rank:
+            return int(tid)
+    if taxon.get("rank") == wanted_rank and taxon.get("id"):
+        return int(taxon["id"])
+    return None
+
+
+@st.cache_data(ttl=86400, show_spinner=False)
+def fetch_personal_first_observations(username, species_ids_tuple):
+    species_ids = sorted({int(x) for x in species_ids_tuple if x})
+    firsts = {}
+    chunk_size = 100
+
+    for start in range(0, len(species_ids), chunk_size):
+        target = set(species_ids[start:start + chunk_size])
+        unresolved = set(target)
+        page = 1
+
+        while unresolved:
+            params = {
+                "user_id": username,
+                "taxon_ids": ",".join(str(x) for x in sorted(target)),
+                "order_by": "observed_on",
+                "order": "asc",
+                "per_page": 200,
+                "page": page,
+                "locale": "nl",
+            }
+
+            checkpoint(
+                f"LIFELIST_FETCH chunk={start//chunk_size + 1} "
+                f"page={page} unresolved={len(unresolved)}"
+            )
+
+            r = requests.get(OBS_API, params=params, timeout=(10, 45))
+            r.raise_for_status()
+            payload = r.json()
+            results = payload.get("results", [])
+
+            for obs in results:
+                tx = obs.get("taxon") or {}
+                lineage = set(extract_ancestor_ids(tx))
+                matches = unresolved.intersection(lineage)
+                for sid in list(matches):
+                    firsts[sid] = {
+                        "date": obs.get("observed_on"),
+                        "observation_id": obs.get("id"),
+                    }
+                    unresolved.discard(sid)
+
+            total = payload.get("total_results", 0)
+            if not results or len(results) < 200 or page * 200 >= min(total, 10000):
+                break
+
+            page += 1
+            time.sleep(1.0)
+
+        time.sleep(1.0)
+
+    checkpoint(f"LIFELIST_DONE species={len(species_ids)} firsts={len(firsts)}")
+    return firsts
+
+
+def timeline_html(timeline_df, personal_firsts):
+    cards = []
+
+    for _, row in timeline_df.iterrows():
+        sid = int(row["species_id"]) if pd.notna(row["species_id"]) else None
+        first_info = personal_firsts.get(sid, {}) if sid else {}
+
+        is_personal_first = bool(
+            first_info
+            and first_info.get("observation_id")
+            and int(first_info["observation_id"]) == int(row["observation_id"])
+        )
+
+        border = "#d62728" if is_personal_first else "#2b6cb0"
+        label = "Eerste iNaturalist-waarneming" if is_personal_first else "Nieuw voor dit gebied"
+
+        nl = html.escape(str(row.get("species_nl") or row.get("Nederlandse naam") or "Onbekend"))
+        sci = html.escape(str(row.get("species_scientific") or row.get("wetenschappelijke naam") or ""))
+        date_text = pd.to_datetime(row["datum"]).strftime("%d-%m-%Y")
+        url = html.escape(str(row.get("inat_url") or "#"))
+
+        photo = row.get("photo_url")
+        if isinstance(photo, str) and photo:
+            photo_html = (
+                '<img loading="lazy" src="' + html.escape(photo) + '" '
+                'style="width:156px;height:118px;object-fit:cover;'
+                'border-radius:10px 10px 0 0;display:block;">'
+            )
+        else:
+            photo_html = (
+                '<div style="width:156px;height:118px;border-radius:10px 10px 0 0;'
+                'display:flex;align-items:center;justify-content:center;background:#f1f3f5;'
+                'font-size:13px;color:#666;">Geen foto</div>'
+            )
+
+        card = (
+            '<a href="' + url + '" target="_blank" style="text-decoration:none;color:inherit;">'
+            '<div style="width:156px;min-width:156px;border:4px solid ' + border + ';'
+            'border-radius:14px;background:white;overflow:hidden;'
+            'box-shadow:0 2px 8px rgba(0,0,0,.12);">'
+            + photo_html +
+            '<div style="padding:8px 9px 10px 9px;white-space:normal;">'
+            '<div style="font-weight:700;font-size:13px;line-height:1.2;">' + nl + '</div>'
+            '<div style="font-style:italic;font-size:11px;color:#555;line-height:1.2;margin-top:2px;">' + sci + '</div>'
+            '<div style="font-size:12px;margin-top:7px;font-weight:600;">' + date_text + '</div>'
+            '<div style="font-size:10px;color:' + border + ';margin-top:4px;font-weight:700;">' + label + '</div>'
+            '</div></div></a>'
+        )
+        cards.append(card)
+
+    return (
+        '<div style="overflow-x:auto;overflow-y:hidden;display:flex;gap:14px;'
+        'padding:10px 4px 18px 4px;scroll-snap-type:x proximity;'
+        '-webkit-overflow-scrolling:touch;">'
+        + ''.join(cards) +
+        '</div>'
+    )
+
+
 def rank_name(taxon_record, wanted_rank, scientific=False):
     if taxon_record.get("rank") == wanted_rank:
         if scientific:
@@ -517,10 +648,34 @@ with tab_dashboard:
                         lon = coords[0] if len(coords) > 0 else None
                         lat = coords[1] if len(coords) > 1 else None
 
+                        species_id = rank_id_from_ancestors(taxon, taxon_lookup, "species")
+                        if species_id is None and taxon.get("rank") == "species" and taxon.get("id"):
+                            species_id = int(taxon["id"])
+
+                        species_rec = taxon_lookup.get(species_id, {}) if species_id else {}
+                        species_nl = species_rec.get("preferred_common_name") or nl_name
+                        species_scientific = species_rec.get("name") or taxon.get("name")
+
+                        photos = o.get("photos") or []
+                        photo_url = None
+                        if photos:
+                            photo_url = photos[0].get("url")
+                            if photo_url:
+                                photo_url = photo_url.replace("square", "medium")
+
                         out.append({
                             "datum": o.get("observed_on"),
                             "Nederlandse naam": nl_name,
                             "wetenschappelijke naam": taxon.get("name"),
+                            "species_id": species_id,
+                            "species_nl": species_nl,
+                            "species_scientific": species_scientific,
+                            "observation_id": o.get("id"),
+                            "photo_url": photo_url,
+                            "inat_url": (
+                                f"https://www.inaturalist.org/observations/{o.get('id')}"
+                                if o.get("id") else None
+                            ),
                             "soortgroep": taxon.get("iconic_taxon_name") or "Onbekend",
                             "orde": rank_from_ancestors(taxon, taxon_lookup, "order"),
                             "orde_wetenschappelijk": rank_from_ancestors(
@@ -545,7 +700,11 @@ with tab_dashboard:
                         "total": total,
                         "start_year": int(start_year),
                         "end_year": int(end_year),
+                        "username": username.strip(),
+                        "mode": mode,
                     }
+                    st.session_state.timeline_firsts = {}
+                    st.session_state.timeline_key = None
 
                     checkpoint(f"DATAFRAME_READY rows={len(df)}")
                     status.update(label="Analyse gereed", state="complete")
@@ -825,6 +984,70 @@ with tab_dashboard:
 
             st.plotly_chart(fig_quarter, use_container_width=True)
 
+            st.subheader("Chronologische tijdlijn van nieuwe soorten")
+            st.caption(
+                "De kaarten staan op datum van de eerste waarneming van die soort in het gekozen "
+                "gebied binnen de geselecteerde periode. Blauw = nieuw voor het gebied. "
+                "Rood = deze waarneming is óók je vroegste iNaturalist-waarneming van die soort. "
+                "Tik op een kaart om de oorspronkelijke iNaturalist-waarneming te openen."
+            )
+
+            timeline = (
+                df.dropna(subset=["species_id", "observation_id"])
+                .sort_values(["datum", "observation_id"])
+                .drop_duplicates("species_id", keep="first")
+                .copy()
+            )
+            timeline["species_id"] = timeline["species_id"].astype(int)
+            timeline = timeline.sort_values(["datum", "species_nl"])
+
+            timeline_key = (
+                meta.get("username"),
+                tuple(timeline["species_id"].tolist()),
+            )
+
+            if meta.get("mode") == "Mijn waarnemingen":
+                if st.session_state.timeline_key != timeline_key:
+                    st.info(
+                        "Voor de rode omlijning moet de app éénmalig je vroegste iNaturalist-"
+                        "waarneming voor deze soorten bepalen. Dit resultaat wordt daarna gecachet."
+                    )
+                    if st.button(
+                        "🔎 Bepaal mijn eerste iNaturalist-waarnemingen",
+                        key="build_lifelist_timeline",
+                    ):
+                        with st.spinner("Persoonlijke eerste waarnemingen bepalen…"):
+                            st.session_state.timeline_firsts = fetch_personal_first_observations(
+                                meta.get("username") or "",
+                                tuple(timeline["species_id"].tolist()),
+                            )
+                            st.session_state.timeline_key = timeline_key
+                        st.rerun()
+
+                personal_firsts = (
+                    st.session_state.timeline_firsts
+                    if st.session_state.timeline_key == timeline_key
+                    else {}
+                )
+            else:
+                personal_firsts = {}
+                st.info(
+                    "De rode omlijning is alleen beschikbaar wanneer je analyseert met "
+                    "‘Mijn waarnemingen’. In ‘Alle waarnemers’ wordt de tijdlijn blauw weergegeven."
+                )
+
+            st.markdown(
+                '<div style="font-size:12px;margin-bottom:4px;">'
+                '<span style="display:inline-block;width:12px;height:12px;border:3px solid #2b6cb0;'
+                'border-radius:3px;vertical-align:-2px;margin-right:5px;"></span>Nieuw voor gebied&nbsp;&nbsp;&nbsp;'
+                '<span style="display:inline-block;width:12px;height:12px;border:3px solid #d62728;'
+                'border-radius:3px;vertical-align:-2px;margin-right:5px;"></span>Eerste persoonlijke iNaturalist-waarneming'
+                '</div>',
+                unsafe_allow_html=True,
+            )
+
+            st.markdown(timeline_html(timeline, personal_firsts), unsafe_allow_html=True)
+
             st.subheader("Meest waargenomen soorten")
             top = (
                 df.groupby(
@@ -847,7 +1070,7 @@ with tab_dashboard:
             checkpoint("DASHBOARD_RENDER_DONE")
 
 st.caption(
-    "iPad/web prototype v0.17 · snelle taxonomie + interactieve heatmap · "
+    "iPad/web prototype v0.18 · snelle taxonomie + interactieve heatmap · "
     "geen iNaturalist-analyse vóór je op ‘Analyseer dit gebied’ drukt."
 )
 
