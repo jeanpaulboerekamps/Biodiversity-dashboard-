@@ -711,7 +711,22 @@ with tab_dashboard:
             fig_month.update_layout(legend_title_text="")
             st.plotly_chart(fig_month, use_container_width=True)
 
-            st.subheader("Nieuwe soorten per kwartaal")
+            st.subheader("Totaal aantal soorten per kwartaal")
+            st.caption(
+                "Elke staaf toont het totaal aantal soorten dat in dat kwartaal is waargenomen. "
+                "Het bovenste deel van de staaf zijn soorten die in dat kwartaal voor het eerst "
+                "binnen de gekozen periode zijn waargenomen."
+            )
+
+            # Aantal unieke soorten dat daadwerkelijk in elk kwartaal is waargenomen.
+            quarterly_total = (
+                df.dropna(subset=["wetenschappelijke naam"])
+                .groupby(["jaar", "kwartaal"])["wetenschappelijke naam"]
+                .nunique()
+                .reset_index(name="totaal soorten")
+            )
+
+            # Eerste waarneming van elke soort binnen de geselecteerde periode.
             first_seen = (
                 df.dropna(subset=["wetenschappelijke naam"])
                 .sort_values("datum")
@@ -721,25 +736,87 @@ with tab_dashboard:
             first_seen["jaar"] = first_seen["datum"].dt.year.astype(int)
             first_seen["kwartaal"] = first_seen["datum"].dt.quarter.astype(int)
 
-            new_q = (
+            quarterly_new = (
                 first_seen.groupby(["jaar", "kwartaal"])
                 .size()
                 .reset_index(name="nieuwe soorten")
             )
-            new_q["periode"] = new_q["jaar"].astype(str) + " Q" + new_q["kwartaal"].astype(str)
 
-            st.plotly_chart(
-                px.bar(
-                    new_q,
-                    x="periode",
-                    y="nieuwe soorten",
-                    labels={
-                        "periode": "Kwartaal",
-                        "nieuwe soorten": "Aantal nieuwe soorten",
-                    },
-                ),
-                use_container_width=True,
+            quarterly = quarterly_total.merge(
+                quarterly_new,
+                on=["jaar", "kwartaal"],
+                how="left",
             )
+            quarterly["nieuwe soorten"] = quarterly["nieuwe soorten"].fillna(0).astype(int)
+
+            # De onderste sectie bevat de soorten die al eerder in de gekozen periode voorkwamen.
+            quarterly["bekende soorten"] = (
+                quarterly["totaal soorten"] - quarterly["nieuwe soorten"]
+            ).clip(lower=0)
+
+            quarterly["periode"] = (
+                quarterly["jaar"].astype(str)
+                + " Q"
+                + quarterly["kwartaal"].astype(str)
+            )
+
+            # Naar lang formaat voor een gestapeld staafdiagram.
+            q_long = quarterly.melt(
+                id_vars=["periode", "totaal soorten"],
+                value_vars=["bekende soorten", "nieuwe soorten"],
+                var_name="categorie",
+                value_name="aantal",
+            )
+
+            # Zorg dat 'nieuwe soorten' altijd bovenop de staaf komt.
+            q_long["categorie"] = pd.Categorical(
+                q_long["categorie"],
+                categories=["bekende soorten", "nieuwe soorten"],
+                ordered=True,
+            )
+            q_long = q_long.sort_values(["periode", "categorie"])
+
+            fig_quarter = px.bar(
+                q_long,
+                x="periode",
+                y="aantal",
+                color="categorie",
+                barmode="stack",
+                text="aantal",
+                category_orders={
+                    "categorie": ["bekende soorten", "nieuwe soorten"]
+                },
+                labels={
+                    "periode": "Kwartaal",
+                    "aantal": "Aantal soorten",
+                    "categorie": "",
+                },
+            )
+
+            # Aantallen in de segmenten tonen.
+            fig_quarter.update_traces(
+                textposition="inside",
+                texttemplate="%{text}",
+            )
+
+            # Totaal boven iedere staaf zetten.
+            fig_quarter.add_scatter(
+                x=quarterly["periode"],
+                y=quarterly["totaal soorten"],
+                mode="text",
+                text=quarterly["totaal soorten"].astype(str),
+                textposition="top center",
+                name="Totaal",
+                showlegend=False,
+                hoverinfo="skip",
+            )
+
+            fig_quarter.update_layout(
+                legend_title_text="",
+                xaxis_title="Kwartaal",
+                yaxis_title="Aantal soorten",
+            )
+            st.plotly_chart(fig_quarter, use_container_width=True)
 
             st.subheader("Meest waargenomen soorten")
             top = (
@@ -763,7 +840,7 @@ with tab_dashboard:
             checkpoint("DASHBOARD_RENDER_DONE")
 
 st.caption(
-    "iPad/web prototype v0.13 · snelle taxonomie + interactieve heatmap · "
+    "iPad/web prototype v0.14 · snelle taxonomie + interactieve heatmap · "
     "geen iNaturalist-analyse vóór je op ‘Analyseer dit gebied’ drukt."
 )
 
