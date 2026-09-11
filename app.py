@@ -83,7 +83,7 @@ if "show_help" not in st.session_state:
 if "show_privacy" not in st.session_state:
     st.session_state.show_privacy = False
 
-st.markdown('<span class="release-badge">Versie 1.1</span>', unsafe_allow_html=True)
+st.markdown('<span class="release-badge">Versie 1.2</span>', unsafe_allow_html=True)
 st.title("🌿 Mijn Biodiversiteit")
 st.caption("Ontdek de natuur om je heen — met openbare waarnemingen van iNaturalist en optioneel Waarneming.nl.")
 
@@ -433,7 +433,7 @@ def fetch_waarneming_species_around(lat, lng, radius_km, end_date, days, token):
         "Authorization": f"Bearer {token}",
         "Accept": "application/json",
         "Accept-Language": "nl",
-        "User-Agent": "Mijn-Biodiversiteit-Streamlit/1.1",
+        "User-Agent": "Mijn-Biodiversiteit-Streamlit/1.2",
     }
     checkpoint("TARGET_WAARNEMING_FETCH")
     r = requests.get(
@@ -850,7 +850,8 @@ with tab_dashboard:
 
             quality = st.selectbox("Kwaliteit", ["Alle", "Research grade", "Needs ID", "Casual"])
 
-        overview_choice = st.selectbox(
+        st.markdown("### Overzicht")
+        overview_choice = st.radio(
             "Kies overzicht",
             [
                 "Taxonomische samenstelling",
@@ -862,10 +863,79 @@ with tab_dashboard:
                 "Meest waargenomen soorten",
                 "Target soorten",
             ],
-            help="Alleen het gekozen overzicht wordt berekend en weergegeven.",
+            index=0,
+            horizontal=False,
+            help="De keuzes blijven zichtbaar; alleen het gekozen overzicht wordt berekend.",
+            key="overview_choice_fixed",
         )
 
-        if st.button("🔎 Analyseer dit gebied", type="primary"):
+        target_radius = 25
+        target_period = 5
+        target_min_count = 3
+        target_use_inat = True
+        target_use_waarneming = False
+        target_waarneming_token = get_waarneming_token()
+
+        if overview_choice == "Target soorten":
+            st.markdown("### Target-instellingen")
+            st.caption(
+                "Stel eerst de zoekopdracht in. Daarna druk je op ‘Analyseer dit gebied’."
+            )
+
+            target_radius = st.segmented_control(
+                "Afstand",
+                options=[5, 10, 25, 50],
+                default=25,
+                format_func=lambda x: f"{x} km",
+                key="target_radius_pre",
+            ) or 25
+
+            target_period = st.segmented_control(
+                "Periode",
+                options=[1, 3, 5, 10],
+                default=5,
+                format_func=lambda x: f"{x} jaar",
+                key="target_period_pre",
+            ) or 5
+
+            target_min_count = st.segmented_control(
+                "Minimum aantal waarnemingen",
+                options=[1, 2, 3, 5, 10, 20],
+                default=3,
+                key="target_min_pre",
+            ) or 3
+
+            st.markdown("**Bronnen**")
+            b1, b2 = st.columns(2)
+            target_use_inat = b1.checkbox(
+                "iNaturalist",
+                value=True,
+                key="target_source_inat_pre",
+            )
+            target_use_waarneming = b2.checkbox(
+                "Waarneming.nl",
+                value=False,
+                key="target_source_waarneming_pre",
+            )
+
+            if target_use_waarneming:
+                if target_waarneming_token:
+                    st.success("Waarneming.nl API-token gevonden in Streamlit Secrets.")
+                else:
+                    st.info(
+                        "Waarneming.nl heeft voor deze API-route een access token nodig. "
+                        "Je kunt het hieronder tijdelijk invullen, of permanent als "
+                        "WAARNEMING_API_TOKEN in Streamlit Secrets zetten."
+                    )
+                    target_waarneming_token = st.text_input(
+                        "Waarneming.nl API-token",
+                        value="",
+                        type="password",
+                        key="waarneming_token_session",
+                        help="Dit wordt niet in GitHub opgeslagen.",
+                    ).strip()
+
+        if st.button("🔎 Analyseer dit gebied", type="primary", width="stretch"):
             # Persoonlijke overzichten hebben een iNaturalist-gebruikersnaam nodig.
             # Target soorten gebruikt algemene openbare waarnemingen en vormt daarop een uitzondering.
             if (
@@ -1034,6 +1104,13 @@ with tab_dashboard:
                         "end_year": int(end_year),
                         "username": username.strip(),
                         "mode": mode,
+                        "quality": quality,
+                        "target_radius": int(target_radius),
+                        "target_period": int(target_period),
+                        "target_min_count": int(target_min_count),
+                        "target_use_inat": bool(target_use_inat),
+                        "target_use_waarneming": bool(target_use_waarneming),
+                        "target_waarneming_token": target_waarneming_token,
                     }
                     st.session_state.timeline_firsts = {}
                     st.session_state.timeline_key = None
@@ -1414,57 +1491,31 @@ with tab_dashboard:
 
             if selected_overview == "Target soorten" and taxonomy_available:
                 st.subheader("Target soorten")
+
+                target_radius = int(meta.get("target_radius", 25))
+                target_period = int(meta.get("target_period", 5))
+                target_min_count = int(meta.get("target_min_count", 3))
+                use_inat = bool(meta.get("target_use_inat", True))
+                use_waarneming = bool(meta.get("target_use_waarneming", False))
+                waarneming_token = str(meta.get("target_waarneming_token", "") or "").strip()
+
+                source_names = []
+                if use_inat:
+                    source_names.append("iNaturalist")
+                if use_waarneming:
+                    source_names.append("Waarneming.nl")
+
                 st.caption(
-                    "Zoek soorten die in de gekozen periode niet binnen het getekende gebied "
-                    "zijn gevonden, maar wel in de omgeving. Je kunt bron, afstand, periode "
-                    "en minimum aantal waarnemingen zelf kiezen."
+                    f"{target_radius} km · afgelopen {target_period} jaar · "
+                    f"minimaal {target_min_count} waarnemingen · "
+                    f"{' + '.join(source_names) if source_names else 'geen bron'}"
                 )
 
-                waarneming_token = get_waarneming_token()
-                f1, f2, f3 = st.columns(3)
-                with f1:
-                    target_radius = st.selectbox(
-                        "Afstand",
-                        [5, 10, 25, 50],
-                        index=2,
-                        format_func=lambda x: f"{x} km",
-                        key="target_radius",
-                    )
-                with f2:
-                    target_period = st.selectbox(
-                        "Periode",
-                        [1, 3, 5, 10],
-                        index=2,
-                        format_func=lambda x: f"afgelopen {x} jaar",
-                        key="target_period",
-                    )
-                with f3:
-                    target_min_count = st.selectbox(
-                        "Minimum aantal waarnemingen",
-                        [1, 2, 3, 5, 10, 20],
-                        index=2,
-                        key="target_min_count",
-                    )
-
-                st.markdown("**Bronnen**")
-                s1, s2 = st.columns(2)
-                use_inat = s1.checkbox(
-                    "iNaturalist",
-                    value=True,
-                    key="target_source_inat",
-                )
-                use_waarneming = s2.checkbox(
-                    "Waarneming.nl",
-                    value=bool(waarneming_token),
-                    disabled=not bool(waarneming_token),
-                    key="target_source_waarneming",
-                )
-
-                if not waarneming_token:
-                    st.info(
-                        "Waarneming.nl staat klaar, maar de gebruikte species-seen API-route "
-                        "vereist authenticatie. Voeg een API access token toe aan Streamlit Secrets "
-                        "als `WAARNEMING_API_TOKEN` om deze bron te activeren."
+                if use_waarneming and not waarneming_token:
+                    st.warning(
+                        "Waarneming.nl is geselecteerd, maar er is nog geen API-token beschikbaar. "
+                        "iNaturalist blijft wel werken. Vul vóór de analyse een token in, of zet "
+                        "WAARNEMING_API_TOKEN in Streamlit Secrets."
                     )
 
                 qp_target = {
@@ -1472,18 +1523,19 @@ with tab_dashboard:
                     "Research grade": "research",
                     "Needs ID": "needs_id",
                     "Casual": "casual",
-                }.get(quality)
+                }.get(meta.get("quality", quality))
 
                 end_date_target = date.today()
-                start_date_target = end_date_target - timedelta(days=365 * int(target_period))
+                start_date_target = end_date_target - timedelta(days=365 * target_period)
+                effective_waarneming = use_waarneming and bool(waarneming_token)
 
-                if not use_inat and not use_waarneming:
-                    st.warning("Kies minstens één bron.")
+                if not use_inat and not effective_waarneming:
+                    st.warning("Kies vóór de analyse minstens één werkende bron.")
                 else:
                     source_text = []
                     if use_inat:
                         source_text.append("iNaturalist")
-                    if use_waarneming:
+                    if effective_waarneming:
                         source_text.append("Waarneming.nl")
 
                     with st.spinner(
@@ -1500,7 +1552,7 @@ with tab_dashboard:
                                 target_min_count,
                                 qp_target,
                                 use_inat=use_inat,
-                                use_waarneming=use_waarneming,
+                                use_waarneming=effective_waarneming,
                                 waarneming_token=waarneming_token,
                             )
                         except Exception as e:
@@ -1508,10 +1560,7 @@ with tab_dashboard:
                             st.error(f"Targetsoorten konden niet worden geladen: {e}")
 
                     if target_df.empty:
-                        st.success(
-                            "Geen targetsoorten gevonden met deze bron-, afstand-, periode- "
-                            "en minimuminstellingen."
-                        )
+                        st.success("Geen targetsoorten gevonden met deze instellingen.")
                     else:
                         c1, c2, c3 = st.columns(3)
                         c1.metric("Target soorten", len(target_df))
@@ -1527,26 +1576,16 @@ with tab_dashboard:
                             column_config={
                                 "iNaturalist-link": st.column_config.LinkColumn("iNaturalist"),
                                 "Waarneming.nl-link": st.column_config.LinkColumn("Waarneming.nl"),
-                                "Totaal bronwaarnemingen": st.column_config.NumberColumn(
-                                    "Totaal",
-                                    format="%d",
-                                ),
-                                "iNaturalist": st.column_config.NumberColumn(
-                                    "iNaturalist",
-                                    format="%d",
-                                ),
-                                "Waarneming.nl": st.column_config.NumberColumn(
-                                    "Waarneming.nl",
-                                    format="%d",
-                                ),
+                                "Totaal bronwaarnemingen": st.column_config.NumberColumn("Totaal", format="%d"),
+                                "iNaturalist": st.column_config.NumberColumn("iNaturalist", format="%d"),
+                                "Waarneming.nl": st.column_config.NumberColumn("Waarneming.nl", format="%d"),
                             },
                         )
 
-                        st.caption(
-                            "Let op: deze versie gebruikt voor beide bronnen een straal rond het "
-                            "middelpunt van het gebied. Bij een volgende versie kunnen we voor grote "
-                            "of langgerekte gebieden overschakelen op afstand tot de echte gebiedsgrens."
-                        )
+                st.caption(
+                    "Wijzig afstand, periode, minimum of bron boven de analyseknop "
+                    "en voer daarna opnieuw de analyse uit."
+                )
 
             if selected_overview == "Meest waargenomen soorten":
                 st.subheader("Meest waargenomen soorten")
@@ -1571,7 +1610,7 @@ with tab_dashboard:
             checkpoint("DASHBOARD_RENDER_DONE")
 
 st.caption(
-    "versie 1.0 · snelle taxonomie + interactieve heatmap · "
+    "versie 1.2 · vaste overzichtskeuze + Target-instellingen vóór analyse · "
     "geen iNaturalist-analyse vóór je op ‘Analyseer dit gebied’ drukt."
 )
 
