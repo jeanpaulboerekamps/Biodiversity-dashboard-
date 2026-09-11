@@ -54,6 +54,7 @@ h1 {font-size: clamp(1.8rem, 5vw, 2.8rem);}
 """, unsafe_allow_html=True)
 
 OBS_API = "https://api.inaturalist.org/v1/observations"
+SPECIES_COUNTS_API = "https://api.inaturalist.org/v1/observations/species_counts"
 TAXA_API = "https://api.inaturalist.org/v1/taxa"
 
 if "areas" not in st.session_state:
@@ -308,6 +309,113 @@ def fetch_observations(params_tuple):
     return rows, total or 0
 
 
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def fetch_species_counts_around(lat, lng, radius_km, start_year, end_year, quality_grade):
+    """
+    Algemene iNaturalist-soortenlijst rondom een middelpunt, gesorteerd op aantal
+    waarnemingen. Gebruikt de geaggregeerde species_counts endpoint.
+    """
+    rows = []
+    page = 1
+
+    while True:
+        params = {
+            "lat": float(lat),
+            "lng": float(lng),
+            "radius": float(radius_km),
+            "d1": f"{int(start_year)}-01-01",
+            "d2": f"{int(end_year)}-12-31",
+            "per_page": 500,
+            "page": page,
+            "locale": "nl",
+            "preferred_place_id": 7506,
+        }
+        if quality_grade:
+            params["quality_grade"] = quality_grade
+
+        checkpoint(f"TARGET_COUNTS_PAGE page={page}")
+        r = requests.get(SPECIES_COUNTS_API, params=params, timeout=(10, 45))
+        r.raise_for_status()
+        payload = r.json()
+        batch = payload.get("results", [])
+        rows.extend(batch)
+
+        total = payload.get("total_results", 0)
+        if not batch or len(batch) < 500 or page * 500 >= total:
+            break
+
+        page += 1
+        time.sleep(1.0)
+
+    checkpoint(f"TARGET_COUNTS_DONE species={len(rows)}")
+    return rows
+
+
+def build_target_species_table(df, area_geom, start_year, end_year, quality_grade):
+    """
+    Vergelijk alle soorten die in het exacte onderzoeksgebied zijn aangetroffen
+    met alle soorten binnen 25 km van het middelpunt.
+    """
+    poly = shape(area_geom)
+    center = poly.centroid
+
+    counts = fetch_species_counts_around(
+        center.y,
+        center.x,
+        25,
+        start_year,
+        end_year,
+        quality_grade,
+    )
+
+    # Alleen soorten (geen genus/familie). Gebruik soort-ID's waar mogelijk.
+    seen_species_ids = set(
+        int(x)
+        for x in df["species_id"].dropna().tolist()
+        if x is not None
+    )
+
+    out = []
+    for item in counts:
+        taxon = item.get("taxon") or {}
+        if taxon.get("rank") != "species":
+            continue
+
+        tid = taxon.get("id")
+        if not tid or int(tid) in seen_species_ids:
+            continue
+
+        nl = taxon.get("preferred_common_name") or taxon.get("name") or "Onbekend"
+        sci = taxon.get("name") or ""
+        count = int(item.get("count") or 0)
+
+        out.append({
+            "Nederlandse naam": nl,
+            "Wetenschappelijke naam": sci,
+            "Waarnemingen binnen 25 km": count,
+            "iNaturalist": f"https://www.inaturalist.org/taxa/{tid}",
+        })
+
+    if not out:
+        return pd.DataFrame(
+            columns=[
+                "Nederlandse naam",
+                "Wetenschappelijke naam",
+                "Waarnemingen binnen 25 km",
+                "iNaturalist",
+            ]
+        )
+
+    target_df = pd.DataFrame(out)
+    target_df = target_df.sort_values(
+        ["Waarnemingen binnen 25 km", "Nederlandse naam"],
+        ascending=[False, True],
+    ).reset_index(drop=True)
+    target_df.index = target_df.index + 1
+    target_df.index.name = "Rang"
+    return target_df
 
 
 @st.cache_data(ttl=86400, show_spinner=False)
@@ -570,6 +678,7 @@ with tab_dashboard:
                 "Cumulatief aantal soorten per kwartaal",
                 "Tijdlijn nieuwe soorten",
                 "Meest waargenomen soorten",
+                "Target soorten",
             ],
             help="Alleen het gekozen overzicht wordt berekend en weergegeven.",
         )
@@ -595,7 +704,7 @@ with tab_dashboard:
                     "preferred_place_id": 7506,
                 }
 
-                if mode == "Mijn waarnemingen":
+                if mode == "Mijn waarnemingen" and overview_choice != "Target soorten":
                     params["user_id"] = username.strip()
 
                 qp = {
@@ -630,6 +739,7 @@ with tab_dashboard:
                     need_taxonomy = overview_choice in {
                         "Taxonomische samenstelling",
                         "Tijdlijn nieuwe soorten",
+                        "Target soorten",
                     }
 
                     taxon_lookup = {}
@@ -757,6 +867,7 @@ with tab_dashboard:
             taxonomy_needed_now = selected_overview in {
                 "Taxonomische samenstelling",
                 "Tijdlijn nieuwe soorten",
+                "Target soorten",
             }
             taxonomy_available = (
                 "orde" in df.columns
@@ -768,7 +879,7 @@ with tab_dashboard:
 
             if taxonomy_needed_now and not taxonomy_available:
                 st.info(
-                    "Dit overzicht heeft extra taxonomische gegevens nodig. "
+                    "Dit overzicht heeft aanvullende soortgegevens nodig. "
                     "Klik één keer opnieuw op ‘Analyseer dit gebied’ met deze keuze actief. "
                     "Daarna kun je het overzicht gebruiken."
                 )
@@ -1106,6 +1217,56 @@ with tab_dashboard:
 
                 st.markdown(timeline_html(timeline, personal_firsts), unsafe_allow_html=True)
 
+            if selected_overview == "Target soorten" and taxonomy_available:
+                st.subheader("Target soorten binnen 25 km")
+                st.caption(
+                    "Dit overzicht gebruikt alle openbare iNaturalist-waarnemingen, niet alleen "
+                    "jouw eigen waarnemingen. Een targetsoort is binnen de geselecteerde periode "
+                    "wel binnen 25 km van het middelpunt van het gebied waargenomen, maar niet "
+                    "binnen het getekende gebied zelf. De meest waargenomen soorten staan bovenaan."
+                )
+
+                qp_target = {
+                    "Alle": None,
+                    "Research grade": "research",
+                    "Needs ID": "needs_id",
+                    "Casual": "casual",
+                }.get(quality)
+
+                with st.spinner("Targetsoorten binnen 25 km bepalen…"):
+                    target_df = build_target_species_table(
+                        df,
+                        st.session_state.areas[active],
+                        meta["start_year"],
+                        meta["end_year"],
+                        qp_target,
+                    )
+
+                if target_df.empty:
+                    st.success(
+                        "Binnen deze periode zijn geen soorten gevonden die wel binnen 25 km "
+                        "maar nog niet in het gekozen gebied zijn waargenomen."
+                    )
+                else:
+                    c1, c2 = st.columns(2)
+                    c1.metric("Target soorten", len(target_df))
+                    c2.metric(
+                        "Meeste waarnemingen",
+                        int(target_df["Waarnemingen binnen 25 km"].max()),
+                    )
+
+                    st.dataframe(
+                        target_df,
+                        use_container_width=True,
+                        column_config={
+                            "iNaturalist": st.column_config.LinkColumn("iNaturalist"),
+                            "Waarnemingen binnen 25 km": st.column_config.NumberColumn(
+                                "Waarnemingen binnen 25 km",
+                                format="%d",
+                            ),
+                        },
+                    )
+
             if selected_overview == "Meest waargenomen soorten":
                 st.subheader("Meest waargenomen soorten")
                 top = (
@@ -1129,7 +1290,7 @@ with tab_dashboard:
             checkpoint("DASHBOARD_RENDER_DONE")
 
 st.caption(
-    "iPad/web prototype v0.20 · snelle taxonomie + interactieve heatmap · "
+    "iPad/web prototype v0.21 · snelle taxonomie + interactieve heatmap · "
     "geen iNaturalist-analyse vóór je op ‘Analyseer dit gebied’ drukt."
 )
 
