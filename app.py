@@ -47,6 +47,14 @@ div.stButton > button, div.stDownloadButton > button {
     padding: 12px; border: 1px solid rgba(128,128,128,.25); border-radius: 14px;
 }
 h1 {font-size: clamp(1.8rem, 5vw, 2.8rem);}
+.release-badge {
+    display:inline-block; padding:.25rem .65rem; border-radius:999px;
+    background:rgba(46,125,50,.12); font-weight:700; margin-bottom:.6rem;
+}
+.welcome-card {
+    padding:1rem 1.1rem; border:1px solid rgba(128,128,128,.22);
+    border-radius:16px; margin:.4rem 0 1rem 0;
+}
 @media (max-width: 768px) {
   .block-container {padding-left: .8rem; padding-right: .8rem;}
 }
@@ -71,31 +79,45 @@ if "timeline_key" not in st.session_state:
     st.session_state.timeline_key = None
 if "show_help" not in st.session_state:
     st.session_state.show_help = False
+if "show_privacy" not in st.session_state:
+    st.session_state.show_privacy = False
 
+st.markdown('<span class="release-badge">Versie 1.0</span>', unsafe_allow_html=True)
 st.title("🌿 Mijn Biodiversiteit")
-st.caption(
-    "Ontdek de biodiversiteit van je tuin, park of natuurgebied met openbare "
-    "iNaturalist-waarnemingen."
+st.caption("Ontdek de natuur om je heen — met openbare waarnemingen van iNaturalist.")
+
+st.markdown(
+    """
+    <div class="welcome-card">
+      <b>Welkom!</b><br>
+      Teken je tuin, park of natuurgebied, of open een eerder opgeslagen gebied.
+      Daarna kies je in het dashboard precies het overzicht dat je wilt bekijken.
+    </div>
+    """,
+    unsafe_allow_html=True,
 )
 
-intro1, intro2, intro3 = st.columns(3)
-intro1.markdown("**1 · Kies je gebied**  \nTeken een nieuw gebied of open een opgeslagen GeoJSON.")
-intro2.markdown("**2 · Stel je analyse in**  \nKies periode, kwaliteit en het gewenste overzicht.")
-intro3.markdown("**3 · Ontdek**  \nBekijk soortenrijkdom, trends, tijdlijn, heatmap en targetsoorten.")
-
-if st.button("ℹ️ Hoe werkt deze app?", key="toggle_help"):
+top_a, top_b = st.columns(2)
+if top_a.button("ℹ️ Hoe werkt deze app?", key="toggle_help"):
     st.session_state.show_help = not st.session_state.show_help
+if top_b.button("🔒 Privacy & gegevens", key="toggle_privacy"):
+    st.session_state.show_privacy = not st.session_state.show_privacy
 
 if st.session_state.show_help:
     st.info(
-        "Begin bij ‘Gebied’: teken de grens van je tuin of onderzoeksgebied en geef die een naam. "
-        "Je kunt gebieden als GeoJSON bewaren en later weer openen. Ga daarna naar ‘Dashboard’, "
-        "kies een overzicht en start de analyse. Voor persoonlijke functies kun je je openbare "
-        "iNaturalist-gebruikersnaam invullen; je wachtwoord is niet nodig. "
-        "‘Target soorten’ gebruikt algemene openbare waarnemingen van alle waarnemers."
+        "1. Teken een nieuw gebied of open een opgeslagen GeoJSON. "
+        "2. Ga naar Dashboard en kies periode, kwaliteit en overzicht. "
+        "3. Start de analyse. Voor ‘Mijn waarnemingen’ vul je alleen je openbare "
+        "iNaturalist-gebruikersnaam in; je wachtwoord is nooit nodig."
     )
 
-checkpoint("UI_HEADER_READY")
+if st.session_state.show_privacy:
+    st.info(
+        "De app gebruikt openbare gegevens van iNaturalist. Voor persoonlijke overzichten "
+        "wordt alleen de door jou ingevulde openbare iNaturalist-gebruikersnaam gebruikt. "
+        "De app vraagt niet om je iNaturalist-wachtwoord. Gebieden die je downloadt worden "
+        "als GeoJSON-bestand door jou zelf bewaard."
+    )
 
 tab_areas, tab_dashboard = st.tabs(["🗺️ Mijn gebieden", "📊 Dashboard"])
 
@@ -1337,8 +1359,15 @@ with tab_dashboard:
             checkpoint("DASHBOARD_RENDER_DONE")
 
 st.caption(
-    "publieke webapp v0.23 · snelle taxonomie + interactieve heatmap · "
+    "versie 1.0 · snelle taxonomie + interactieve heatmap · "
     "geen iNaturalist-analyse vóór je op ‘Analyseer dit gebied’ drukt."
 )
 
 checkpoint("APP_END")
+
+
+st.divider()
+st.caption(
+    "Mijn Biodiversiteit v1.0 · Gegevens via iNaturalist · "
+    "iNaturalist is een externe dienst; beschikbaarheid en gegevens kunnen wijzigen."
+)
