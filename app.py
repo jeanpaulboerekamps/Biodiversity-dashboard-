@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, timedelta
 import json
 import html
 import logging
@@ -64,6 +64,7 @@ h1 {font-size: clamp(1.8rem, 5vw, 2.8rem);}
 OBS_API = "https://api.inaturalist.org/v1/observations"
 SPECIES_COUNTS_API = "https://api.inaturalist.org/v1/observations/species_counts"
 TAXA_API = "https://api.inaturalist.org/v1/taxa"
+WAARNEMING_SPECIES_SEEN_API = "https://waarneming.nl/api/v1/locations/species-seen/"
 
 if "areas" not in st.session_state:
     st.session_state.areas = {}
@@ -82,9 +83,9 @@ if "show_help" not in st.session_state:
 if "show_privacy" not in st.session_state:
     st.session_state.show_privacy = False
 
-st.markdown('<span class="release-badge">Versie 1.0</span>', unsafe_allow_html=True)
+st.markdown('<span class="release-badge">Versie 1.1</span>', unsafe_allow_html=True)
 st.title("🌿 Mijn Biodiversiteit")
-st.caption("Ontdek de natuur om je heen — met openbare waarnemingen van iNaturalist.")
+st.caption("Ontdek de natuur om je heen — met openbare waarnemingen van iNaturalist en optioneel Waarneming.nl.")
 
 st.markdown(
     """
@@ -365,11 +366,8 @@ def fetch_observations(params_tuple):
 
 
 @st.cache_data(ttl=3600, show_spinner=False)
-def fetch_species_counts_around(lat, lng, radius_km, start_year, end_year, quality_grade):
-    """
-    Algemene iNaturalist-soortenlijst rondom een middelpunt, gesorteerd op aantal
-    waarnemingen. Gebruikt de geaggregeerde species_counts endpoint.
-    """
+def fetch_species_counts_around(lat, lng, radius_km, start_date, end_date, quality_grade):
+    """Geaggregeerde iNaturalist-soortenlijst rond een punt."""
     rows = []
     page = 1
 
@@ -378,8 +376,8 @@ def fetch_species_counts_around(lat, lng, radius_km, start_year, end_year, quali
             "lat": float(lat),
             "lng": float(lng),
             "radius": float(radius_km),
-            "d1": f"{int(start_year)}-01-01",
-            "d2": f"{int(end_year)}-12-31",
+            "d1": str(start_date),
+            "d2": str(end_date),
             "per_page": 500,
             "page": page,
             "locale": "nl",
@@ -388,7 +386,7 @@ def fetch_species_counts_around(lat, lng, radius_km, start_year, end_year, quali
         if quality_grade:
             params["quality_grade"] = quality_grade
 
-        checkpoint(f"TARGET_COUNTS_PAGE page={page}")
+        checkpoint(f"TARGET_INAT_COUNTS_PAGE page={page}")
         r = requests.get(SPECIES_COUNTS_API, params=params, timeout=(10, 45))
         r.raise_for_status()
         payload = r.json()
@@ -402,68 +400,196 @@ def fetch_species_counts_around(lat, lng, radius_km, start_year, end_year, quali
         page += 1
         time.sleep(1.0)
 
-    checkpoint(f"TARGET_COUNTS_DONE species={len(rows)}")
+    checkpoint(f"TARGET_INAT_COUNTS_DONE species={len(rows)}")
     return rows
 
 
-def build_target_species_table(df, area_geom, start_year, end_year, quality_grade):
+def get_waarneming_token():
+    """Lees optioneel een API-token uit Streamlit secrets."""
+    try:
+        return str(st.secrets.get("WAARNEMING_API_TOKEN", "") or "").strip()
+    except Exception:
+        return ""
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def fetch_waarneming_species_around(lat, lng, radius_km, end_date, days, token):
     """
-    Vergelijk alle soorten die in het exacte onderzoeksgebied zijn aangetroffen
-    met alle soorten binnen 25 km van het middelpunt.
+    Waarneming.nl / Observation International: species-seen rond een punt.
+    Dit endpoint vereist volgens de huidige API-clientdocumentatie authenticatie.
+    """
+    if not token:
+        return []
+
+    params = {
+        "coordinates": f"{float(lat):.6f},{float(lng):.6f}",
+        "radius": float(radius_km),
+        "end_date": str(end_date),
+        "days": int(days),
+        "fast": 0,
+        "order_by": "num_observations",
+    }
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Accept": "application/json",
+        "Accept-Language": "nl",
+        "User-Agent": "Mijn-Biodiversiteit-Streamlit/1.1",
+    }
+    checkpoint("TARGET_WAARNEMING_FETCH")
+    r = requests.get(
+        WAARNEMING_SPECIES_SEEN_API,
+        params=params,
+        headers=headers,
+        timeout=(10, 45),
+    )
+    if r.status_code in (401, 403):
+        raise RuntimeError(
+            "Waarneming.nl heeft het API-token niet geaccepteerd. "
+            "Controleer WAARNEMING_API_TOKEN in Streamlit Secrets."
+        )
+    r.raise_for_status()
+    payload = r.json()
+    return payload.get("results", []) or []
+
+
+def build_target_species_table(
+    df,
+    area_geom,
+    radius_km,
+    start_date,
+    end_date,
+    min_observations,
+    quality_grade,
+    use_inat=True,
+    use_waarneming=False,
+    waarneming_token="",
+):
+    """
+    Combineer targetsoorten uit iNaturalist en (optioneel) Waarneming.nl.
+
+    Een targetsoort is niet in de reeds geanalyseerde waarnemingen binnen het gebied
+    aanwezig, maar wel in de gekozen straal rond het middelpunt. De bronresultaten
+    worden op wetenschappelijke naam samengevoegd.
     """
     poly = shape(area_geom)
     center = poly.centroid
 
-    counts = fetch_species_counts_around(
-        center.y,
-        center.x,
-        25,
-        start_year,
-        end_year,
-        quality_grade,
+    seen_names = set(
+        str(x).strip().casefold()
+        for x in df["wetenschappelijke naam"].dropna().tolist()
+        if str(x).strip()
     )
-
-    # Alleen soorten (geen genus/familie). Gebruik soort-ID's waar mogelijk.
-    seen_species_ids = set(
+    seen_inat_ids = set(
         int(x)
         for x in df["species_id"].dropna().tolist()
         if x is not None
     )
 
-    out = []
-    for item in counts:
-        taxon = item.get("taxon") or {}
-        if taxon.get("rank") != "species":
-            continue
+    merged = {}
 
-        tid = taxon.get("id")
-        if not tid or int(tid) in seen_species_ids:
-            continue
-
-        nl = taxon.get("preferred_common_name") or taxon.get("name") or "Onbekend"
-        sci = taxon.get("name") or ""
-        count = int(item.get("count") or 0)
-
-        out.append({
-            "Nederlandse naam": nl,
-            "Wetenschappelijke naam": sci,
-            "Waarnemingen binnen 25 km": count,
-            "iNaturalist": f"https://www.inaturalist.org/taxa/{tid}",
-        })
-
-    if not out:
-        return pd.DataFrame(
-            columns=[
-                "Nederlandse naam",
-                "Wetenschappelijke naam",
-                "Waarnemingen binnen 25 km",
-                "iNaturalist",
-            ]
+    if use_inat:
+        counts = fetch_species_counts_around(
+            center.y,
+            center.x,
+            radius_km,
+            start_date,
+            end_date,
+            quality_grade,
         )
+        for item in counts:
+            taxon = item.get("taxon") or {}
+            if taxon.get("rank") != "species":
+                continue
+            tid = taxon.get("id")
+            sci = str(taxon.get("name") or "").strip()
+            if not sci or sci.casefold() in seen_names:
+                continue
+            if tid and int(tid) in seen_inat_ids:
+                continue
+
+            count = int(item.get("count") or 0)
+            if count <= 0:
+                continue
+            row = merged.setdefault(sci.casefold(), {
+                "Nederlandse naam": taxon.get("preferred_common_name") or sci,
+                "Wetenschappelijke naam": sci,
+                "iNaturalist": 0,
+                "Waarneming.nl": 0,
+                "Laatste waarneming Waarneming.nl": None,
+                "iNaturalist-link": f"https://www.inaturalist.org/taxa/{tid}" if tid else "",
+                "Waarneming.nl-link": "",
+            })
+            row["iNaturalist"] += count
+
+    if use_waarneming:
+        days = max(1, (pd.Timestamp(end_date) - pd.Timestamp(start_date)).days + 1)
+        w_rows = fetch_waarneming_species_around(
+            center.y,
+            center.x,
+            radius_km,
+            end_date,
+            days,
+            waarneming_token,
+        )
+        for item in w_rows:
+            sci = str(item.get("scientific_name") or "").strip()
+            if not sci or sci.casefold() in seen_names:
+                continue
+            count = int(item.get("num_observations") or 0)
+            if count <= 0:
+                continue
+
+            row = merged.setdefault(sci.casefold(), {
+                "Nederlandse naam": item.get("name") or sci,
+                "Wetenschappelijke naam": sci,
+                "iNaturalist": 0,
+                "Waarneming.nl": 0,
+                "Laatste waarneming Waarneming.nl": None,
+                "iNaturalist-link": "",
+                "Waarneming.nl-link": item.get("species_url") or "",
+            })
+            if not row["Nederlandse naam"] or row["Nederlandse naam"] == sci:
+                row["Nederlandse naam"] = item.get("name") or sci
+            row["Waarneming.nl"] += count
+            last_seen = item.get("last_seen")
+            if last_seen:
+                current = row.get("Laatste waarneming Waarneming.nl")
+                if not current or str(last_seen) > str(current):
+                    row["Laatste waarneming Waarneming.nl"] = str(last_seen)
+            if item.get("species_url"):
+                row["Waarneming.nl-link"] = item.get("species_url")
+
+    out = []
+    for row in merged.values():
+        row["Totaal bronwaarnemingen"] = int(row["iNaturalist"]) + int(row["Waarneming.nl"])
+        # Minimum geldt voor het gecombineerde aantal uit de geselecteerde bronnen.
+        if row["Totaal bronwaarnemingen"] < int(min_observations):
+            continue
+        sources = []
+        if row["iNaturalist"] > 0:
+            sources.append("iNaturalist")
+        if row["Waarneming.nl"] > 0:
+            sources.append("Waarneming.nl")
+        row["Bron"] = " + ".join(sources)
+        out.append(row)
+
+    cols = [
+        "Nederlandse naam",
+        "Wetenschappelijke naam",
+        "Bron",
+        "Totaal bronwaarnemingen",
+        "iNaturalist",
+        "Waarneming.nl",
+        "Laatste waarneming Waarneming.nl",
+        "iNaturalist-link",
+        "Waarneming.nl-link",
+    ]
+    if not out:
+        return pd.DataFrame(columns=cols)
 
     target_df = pd.DataFrame(out)
     target_df = target_df.sort_values(
-        ["Waarnemingen binnen 25 km", "Nederlandse naam"],
+        ["Totaal bronwaarnemingen", "Nederlandse naam"],
         ascending=[False, True],
     ).reset_index(drop=True)
     target_df.index = target_df.index + 1
@@ -1287,13 +1413,59 @@ with tab_dashboard:
                 st.markdown(timeline_html(timeline, personal_firsts), unsafe_allow_html=True)
 
             if selected_overview == "Target soorten" and taxonomy_available:
-                st.subheader("Target soorten binnen 25 km")
+                st.subheader("Target soorten")
                 st.caption(
-                    "Dit overzicht gebruikt alle openbare iNaturalist-waarnemingen, niet alleen "
-                    "jouw eigen waarnemingen. Een targetsoort is binnen de geselecteerde periode "
-                    "wel binnen 25 km van het middelpunt van het gebied waargenomen, maar niet "
-                    "binnen het getekende gebied zelf. De meest waargenomen soorten staan bovenaan."
+                    "Zoek soorten die in de gekozen periode niet binnen het getekende gebied "
+                    "zijn gevonden, maar wel in de omgeving. Je kunt bron, afstand, periode "
+                    "en minimum aantal waarnemingen zelf kiezen."
                 )
+
+                waarneming_token = get_waarneming_token()
+                f1, f2, f3 = st.columns(3)
+                with f1:
+                    target_radius = st.selectbox(
+                        "Afstand",
+                        [5, 10, 25, 50],
+                        index=2,
+                        format_func=lambda x: f"{x} km",
+                        key="target_radius",
+                    )
+                with f2:
+                    target_period = st.selectbox(
+                        "Periode",
+                        [1, 3, 5, 10],
+                        index=2,
+                        format_func=lambda x: f"afgelopen {x} jaar",
+                        key="target_period",
+                    )
+                with f3:
+                    target_min_count = st.selectbox(
+                        "Minimum aantal waarnemingen",
+                        [1, 2, 3, 5, 10, 20],
+                        index=2,
+                        key="target_min_count",
+                    )
+
+                st.markdown("**Bronnen**")
+                s1, s2 = st.columns(2)
+                use_inat = s1.checkbox(
+                    "iNaturalist",
+                    value=True,
+                    key="target_source_inat",
+                )
+                use_waarneming = s2.checkbox(
+                    "Waarneming.nl",
+                    value=bool(waarneming_token),
+                    disabled=not bool(waarneming_token),
+                    key="target_source_waarneming",
+                )
+
+                if not waarneming_token:
+                    st.info(
+                        "Waarneming.nl staat klaar, maar de gebruikte species-seen API-route "
+                        "vereist authenticatie. Voeg een API access token toe aan Streamlit Secrets "
+                        "als `WAARNEMING_API_TOKEN` om deze bron te activeren."
+                    )
 
                 qp_target = {
                     "Alle": None,
@@ -1302,39 +1474,79 @@ with tab_dashboard:
                     "Casual": "casual",
                 }.get(quality)
 
-                with st.spinner("Targetsoorten binnen 25 km bepalen…"):
-                    target_df = build_target_species_table(
-                        df,
-                        st.session_state.areas[active],
-                        meta["start_year"],
-                        meta["end_year"],
-                        qp_target,
-                    )
+                end_date_target = date.today()
+                start_date_target = end_date_target - timedelta(days=365 * int(target_period))
 
-                if target_df.empty:
-                    st.success(
-                        "Binnen deze periode zijn geen soorten gevonden die wel binnen 25 km "
-                        "maar nog niet in het gekozen gebied zijn waargenomen."
-                    )
+                if not use_inat and not use_waarneming:
+                    st.warning("Kies minstens één bron.")
                 else:
-                    c1, c2 = st.columns(2)
-                    c1.metric("Target soorten", len(target_df))
-                    c2.metric(
-                        "Meeste waarnemingen",
-                        int(target_df["Waarnemingen binnen 25 km"].max()),
-                    )
+                    source_text = []
+                    if use_inat:
+                        source_text.append("iNaturalist")
+                    if use_waarneming:
+                        source_text.append("Waarneming.nl")
 
-                    st.dataframe(
-                        target_df,
-                        use_container_width=True,
-                        column_config={
-                            "iNaturalist": st.column_config.LinkColumn("iNaturalist"),
-                            "Waarnemingen binnen 25 km": st.column_config.NumberColumn(
-                                "Waarnemingen binnen 25 km",
-                                format="%d",
-                            ),
-                        },
-                    )
+                    with st.spinner(
+                        f"Targetsoorten zoeken via {' + '.join(source_text)} "
+                        f"binnen {target_radius} km…"
+                    ):
+                        try:
+                            target_df = build_target_species_table(
+                                df,
+                                st.session_state.areas[active],
+                                target_radius,
+                                start_date_target.isoformat(),
+                                end_date_target.isoformat(),
+                                target_min_count,
+                                qp_target,
+                                use_inat=use_inat,
+                                use_waarneming=use_waarneming,
+                                waarneming_token=waarneming_token,
+                            )
+                        except Exception as e:
+                            target_df = pd.DataFrame()
+                            st.error(f"Targetsoorten konden niet worden geladen: {e}")
+
+                    if target_df.empty:
+                        st.success(
+                            "Geen targetsoorten gevonden met deze bron-, afstand-, periode- "
+                            "en minimuminstellingen."
+                        )
+                    else:
+                        c1, c2, c3 = st.columns(3)
+                        c1.metric("Target soorten", len(target_df))
+                        c2.metric(
+                            "Meeste bronwaarnemingen",
+                            int(target_df["Totaal bronwaarnemingen"].max()),
+                        )
+                        c3.metric("Zoekafstand", f"{target_radius} km")
+
+                        st.dataframe(
+                            target_df,
+                            use_container_width=True,
+                            column_config={
+                                "iNaturalist-link": st.column_config.LinkColumn("iNaturalist"),
+                                "Waarneming.nl-link": st.column_config.LinkColumn("Waarneming.nl"),
+                                "Totaal bronwaarnemingen": st.column_config.NumberColumn(
+                                    "Totaal",
+                                    format="%d",
+                                ),
+                                "iNaturalist": st.column_config.NumberColumn(
+                                    "iNaturalist",
+                                    format="%d",
+                                ),
+                                "Waarneming.nl": st.column_config.NumberColumn(
+                                    "Waarneming.nl",
+                                    format="%d",
+                                ),
+                            },
+                        )
+
+                        st.caption(
+                            "Let op: deze versie gebruikt voor beide bronnen een straal rond het "
+                            "middelpunt van het gebied. Bij een volgende versie kunnen we voor grote "
+                            "of langgerekte gebieden overschakelen op afstand tot de echte gebiedsgrens."
+                        )
 
             if selected_overview == "Meest waargenomen soorten":
                 st.subheader("Meest waargenomen soorten")
