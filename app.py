@@ -7,6 +7,7 @@ import time
 import folium
 import pandas as pd
 import plotly.express as px
+import plotly.graph_objects as go
 import requests
 import streamlit as st
 from folium.plugins import Draw, HeatMap
@@ -781,33 +782,29 @@ with tab_dashboard:
             )
             q_long = q_long.sort_values(["periode", "categorie"])
 
-            fig_quarter = px.bar(
-                q_long,
-                x="periode",
-                y="aantal",
-                color="categorie",
-                barmode="stack",
-                text="aantal",
-                category_orders={
-                    "categorie": ["eerder bekende soorten", "nieuwe soorten"]
-                },
-                color_discrete_map={
-                    "eerder bekende soorten": "#1f4e79",
-                    "nieuwe soorten": "#d62728",
-                },
-                labels={
-                    "periode": "Kwartaal",
-                    "aantal": "Aantal soorten",
-                    "categorie": "",
-                },
-            )
+            # Bouw de gestapelde staaf expliciet op, zodat het rode segment
+            # gegarandeerd boven op het donkerblauwe segment staat.
+            fig_quarter = go.Figure()
 
-            fig_quarter.update_traces(
+            fig_quarter.add_bar(
+                x=quarterly["periode"],
+                y=quarterly["eerder bekende soorten"],
+                name="Eerder bekende soorten",
+                marker_color="#1f4e79",
+                text=quarterly["eerder bekende soorten"].astype(str),
                 textposition="inside",
-                texttemplate="%{text}",
             )
 
-            # Totaal cumulatief boven elke staaf.
+            fig_quarter.add_bar(
+                x=quarterly["periode"],
+                y=quarterly["nieuwe soorten"],
+                name="Nieuwe soorten",
+                marker_color="#d62728",
+                text=quarterly["nieuwe soorten"].astype(str),
+                textposition="inside",
+            )
+
+            # Cumulatief totaal boven iedere gestapelde staaf.
             fig_quarter.add_scatter(
                 x=quarterly["periode"],
                 y=quarterly["totaal soorten"],
@@ -850,7 +847,7 @@ with tab_dashboard:
             checkpoint("DASHBOARD_RENDER_DONE")
 
 st.caption(
-    "iPad/web prototype v0.16 · snelle taxonomie + interactieve heatmap · "
+    "iPad/web prototype v0.17 · snelle taxonomie + interactieve heatmap · "
     "geen iNaturalist-analyse vóór je op ‘Analyseer dit gebied’ drukt."
 )
 
