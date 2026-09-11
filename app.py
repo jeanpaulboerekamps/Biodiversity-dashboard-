@@ -729,7 +729,6 @@ with tab_dashboard:
                         "end_year": int(end_year),
                         "username": username.strip(),
                         "mode": mode,
-                        "overview_choice": overview_choice,
                     }
                     st.session_state.timeline_firsts = {}
                     st.session_state.timeline_key = None
@@ -753,9 +752,28 @@ with tab_dashboard:
             c.metric("Soortgroepen", df["soortgroep"].nunique())
             d.metric("Jaren", df["jaar"].nunique())
 
-            selected_overview = meta.get("overview_choice", overview_choice)
+            selected_overview = overview_choice
 
-            if selected_overview == "Taxonomische samenstelling":
+            taxonomy_needed_now = selected_overview in {
+                "Taxonomische samenstelling",
+                "Tijdlijn nieuwe soorten",
+            }
+            taxonomy_available = (
+                "orde" in df.columns
+                and df["orde"].notna().any()
+            ) or (
+                "species_id" in df.columns
+                and df["species_id"].notna().any()
+            )
+
+            if taxonomy_needed_now and not taxonomy_available:
+                st.info(
+                    "Dit overzicht heeft extra taxonomische gegevens nodig. "
+                    "Klik één keer opnieuw op ‘Analyseer dit gebied’ met deze keuze actief. "
+                    "Daarna kun je het overzicht gebruiken."
+                )
+
+            if selected_overview == "Taxonomische samenstelling" and taxonomy_available:
                 st.subheader("Samenstelling per soortgroep")
                 group_counts = (
                     df["soortgroep"].fillna("Onbekend")
@@ -1019,7 +1037,7 @@ with tab_dashboard:
 
                 st.plotly_chart(fig_quarter, use_container_width=True)
 
-            if selected_overview == "Tijdlijn nieuwe soorten":
+            if selected_overview == "Tijdlijn nieuwe soorten" and taxonomy_available:
                 st.subheader("Chronologische tijdlijn van nieuwe soorten")
                 st.caption(
                     "De kaarten staan op datum van de eerste waarneming van die soort in het gekozen "
@@ -1111,7 +1129,7 @@ with tab_dashboard:
             checkpoint("DASHBOARD_RENDER_DONE")
 
 st.caption(
-    "iPad/web prototype v0.19 · snelle taxonomie + interactieve heatmap · "
+    "iPad/web prototype v0.20 · snelle taxonomie + interactieve heatmap · "
     "geen iNaturalist-analyse vóór je op ‘Analyseer dit gebied’ drukt."
 )
 
