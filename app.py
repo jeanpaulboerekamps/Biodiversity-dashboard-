@@ -69,15 +69,46 @@ if "timeline_firsts" not in st.session_state:
     st.session_state.timeline_firsts = {}
 if "timeline_key" not in st.session_state:
     st.session_state.timeline_key = None
+if "show_help" not in st.session_state:
+    st.session_state.show_help = False
 
 st.title("🌿 Mijn Biodiversiteit")
-st.caption("Teken een tuin, park, natuurgebied of ander onderzoeksgebied en analyseer iNaturalist-waarnemingen.")
+st.caption(
+    "Ontdek de biodiversiteit van je tuin, park of natuurgebied met openbare "
+    "iNaturalist-waarnemingen."
+)
+
+intro1, intro2, intro3 = st.columns(3)
+intro1.markdown("**1 · Kies je gebied**  \nTeken een nieuw gebied of open een opgeslagen GeoJSON.")
+intro2.markdown("**2 · Stel je analyse in**  \nKies periode, kwaliteit en het gewenste overzicht.")
+intro3.markdown("**3 · Ontdek**  \nBekijk soortenrijkdom, trends, tijdlijn, heatmap en targetsoorten.")
+
+if st.button("ℹ️ Hoe werkt deze app?", key="toggle_help"):
+    st.session_state.show_help = not st.session_state.show_help
+
+if st.session_state.show_help:
+    st.info(
+        "Begin bij ‘Gebied’: teken de grens van je tuin of onderzoeksgebied en geef die een naam. "
+        "Je kunt gebieden als GeoJSON bewaren en later weer openen. Ga daarna naar ‘Dashboard’, "
+        "kies een overzicht en start de analyse. Voor persoonlijke functies kun je je openbare "
+        "iNaturalist-gebruikersnaam invullen; je wachtwoord is niet nodig. "
+        "‘Target soorten’ gebruikt algemene openbare waarnemingen van alle waarnemers."
+    )
 
 checkpoint("UI_HEADER_READY")
 
 tab_areas, tab_dashboard = st.tabs(["🗺️ Mijn gebieden", "📊 Dashboard"])
 
 with tab_areas:
+
+    if st.button("➕ Nieuw gebied", key="new_area"):
+        st.session_state.active_area = None
+        st.session_state.analysis_df = None
+        st.session_state.analysis_meta = {}
+        st.session_state.timeline_firsts = {}
+        st.session_state.timeline_key = None
+        st.success("Klaar voor een nieuw gebied. Teken het gebied op de kaart en geef het een naam.")
+
     st.subheader("Nieuw of bestaand gebied")
 
     if st.session_state.areas:
@@ -653,7 +684,7 @@ with tab_dashboard:
         st.subheader(active)
 
         with st.expander("Filters", expanded=True):
-            username = st.text_input("iNaturalist-gebruikersnaam", value="jeanpaulboerekamps")
+            username = st.text_input("iNaturalist-gebruikersnaam", value="")
             mode = st.segmented_control(
                 "Waarnemers",
                 ["Mijn waarnemingen", "Alle waarnemers"],
@@ -1290,7 +1321,7 @@ with tab_dashboard:
             checkpoint("DASHBOARD_RENDER_DONE")
 
 st.caption(
-    "iPad/web prototype v0.21 · snelle taxonomie + interactieve heatmap · "
+    "publieke webapp v0.22 · snelle taxonomie + interactieve heatmap · "
     "geen iNaturalist-analyse vóór je op ‘Analyseer dit gebied’ drukt."
 )
 
