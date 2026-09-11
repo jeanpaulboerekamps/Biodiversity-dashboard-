@@ -79,6 +79,44 @@ with tab_areas:
         if chosen != "— kies —":
             st.session_state.active_area = chosen
 
+    st.markdown("### Gebieden openen of bewaren")
+    uploaded_areas = st.file_uploader(
+        "Open een eerder bewaard GeoJSON-bestand",
+        type=["geojson", "json"],
+        accept_multiple_files=False,
+        help="Kies een bestand uit de opslaglocaties die op je apparaat beschikbaar zijn.",
+    )
+
+    if uploaded_areas is not None:
+        upload_key = (uploaded_areas.name, uploaded_areas.size)
+        if st.session_state.get("last_area_upload") != upload_key:
+            try:
+                imported = json.loads(uploaded_areas.getvalue().decode("utf-8"))
+                features = (
+                    imported.get("features") or []
+                    if imported.get("type") == "FeatureCollection"
+                    else [imported] if imported.get("type") == "Feature"
+                    else []
+                )
+                count = 0
+                first_name = None
+                for i, feature in enumerate(features, 1):
+                    geom = feature.get("geometry")
+                    if not geom:
+                        continue
+                    name = str((feature.get("properties") or {}).get("name") or f"Geïmporteerd gebied {i}").strip()
+                    st.session_state.areas[name] = geom
+                    first_name = first_name or name
+                    count += 1
+                if count:
+                    st.session_state.active_area = first_name
+                    st.session_state.last_area_upload = upload_key
+                    st.success(f"{count} gebied(en) geopend.")
+                else:
+                    st.warning("In dit bestand zijn geen bruikbare gebieden gevonden.")
+            except Exception as e:
+                st.error(f"Dit bestand kon niet als GeoJSON worden geopend: {e}")
+
     area_name = st.text_input("Naam van het gebied", placeholder="Bijvoorbeeld: Mijn tuin")
     st.write("**Teken hieronder de grens.** Gebruik het polygoon- of rechthoek-icoon links op de kaart.")
 
@@ -148,22 +186,59 @@ with tab_areas:
                 st.rerun()
 
     if st.session_state.areas:
-        export = json.dumps(
-            {
-                "type": "FeatureCollection",
-                "features": [
-                    {"type": "Feature", "properties": {"name": n}, "geometry": g}
-                    for n, g in st.session_state.areas.items()
-                ],
-            },
-            ensure_ascii=False,
-            indent=2,
-        )
+        st.markdown("### Gebieden beheren")
+
+        active_for_manage = st.session_state.active_area
+        if active_for_manage and active_for_manage in st.session_state.areas:
+            new_name = st.text_input("Actief gebied hernoemen", value=active_for_manage, key="rename_area_name")
+            if st.button("✏️ Hernoemen"):
+                clean = new_name.strip()
+                if not clean:
+                    st.error("De naam mag niet leeg zijn.")
+                elif clean != active_for_manage and clean in st.session_state.areas:
+                    st.error("Er bestaat al een gebied met deze naam.")
+                elif clean != active_for_manage:
+                    geom = st.session_state.areas.pop(active_for_manage)
+                    st.session_state.areas[clean] = geom
+                    st.session_state.active_area = clean
+                    st.rerun()
+
+        export = json.dumps({
+            "type": "FeatureCollection",
+            "features": [
+                {"type": "Feature", "properties": {"name": n}, "geometry": g}
+                for n, g in st.session_state.areas.items()
+            ],
+        }, ensure_ascii=False, indent=2)
+
         st.download_button(
-            "⬇️ Gebieden bewaren als GeoJSON",
+            "💾 Alle gebieden opslaan",
             export,
-            "mijn_gebieden.geojson",
+            "mijn_biodiversiteitsgebieden.geojson",
             "application/geo+json",
+            help="Bewaar het bestand via je browser op de locatie van je keuze.",
+        )
+
+        if active_for_manage and active_for_manage in st.session_state.areas:
+            single = json.dumps({
+                "type": "FeatureCollection",
+                "features": [{
+                    "type": "Feature",
+                    "properties": {"name": active_for_manage},
+                    "geometry": st.session_state.areas[active_for_manage],
+                }],
+            }, ensure_ascii=False, indent=2)
+            safe = "".join(c if c.isalnum() or c in "-_" else "_" for c in active_for_manage).strip("_") or "gebied"
+            st.download_button(
+                "💾 Alleen actief gebied opslaan",
+                single,
+                f"{safe}.geojson",
+                "application/geo+json",
+            )
+
+        st.caption(
+            "Het GeoJSON-bestand is je permanente kopie. Bewaar het waar je wilt en open het later "
+            "weer met de bestandskiezer hierboven."
         )
 
 
@@ -662,7 +737,7 @@ with tab_dashboard:
             checkpoint("DASHBOARD_RENDER_DONE")
 
 st.caption(
-    "iPad/web prototype v0.11 · snelle taxonomie + interactieve heatmap · "
+    "iPad/web prototype v0.12 · snelle taxonomie + interactieve heatmap · "
     "geen iNaturalist-analyse vóór je op ‘Analyseer dit gebied’ drukt."
 )
 
