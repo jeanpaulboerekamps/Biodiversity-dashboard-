@@ -75,11 +75,34 @@ with tab_areas:
 
     if st.session_state.areas:
         names = list(st.session_state.areas)
-        chosen = st.selectbox("Opgeslagen gebieden", ["— kies —"] + names)
+        current = st.session_state.active_area if st.session_state.active_area in names else None
+        default_index = names.index(current) + 1 if current else 0
+
+        chosen = st.selectbox(
+            "Opgeslagen gebieden",
+            ["— kies —"] + names,
+            index=default_index,
+            key="saved_area_selector",
+        )
+
         if chosen != "— kies —":
-            st.session_state.active_area = chosen
+            c_open, c_status = st.columns([1, 2])
+            with c_open:
+                if st.button("📂 Gebied openen", type="primary", key="open_saved_area"):
+                    st.session_state.active_area = chosen
+                    st.session_state.analysis_df = None
+                    st.session_state.analysis_meta = {}
+                    st.rerun()
+            with c_status:
+                if st.session_state.active_area == chosen:
+                    st.success(f"Actief gebied: {chosen}")
 
     st.markdown("### Gebieden openen of bewaren")
+    st.info(
+        "Een webapp mag uit veiligheidsoverwegingen niet zelfstandig naar een willekeurige map "
+        "op je iPad, OneDrive of iCloud schrijven. De app maakt daarom een GeoJSON-bestand; "
+        "via Safari/Bestanden kies je daarna zelf de doelmap."
+    )
     uploaded_areas = st.file_uploader(
         "Open een eerder bewaard GeoJSON-bestand",
         type=["geojson", "json"],
@@ -111,7 +134,10 @@ with tab_areas:
                 if count:
                     st.session_state.active_area = first_name
                     st.session_state.last_area_upload = upload_key
-                    st.success(f"{count} gebied(en) geopend.")
+                    st.session_state.analysis_df = None
+                    st.session_state.analysis_meta = {}
+                    st.success(f"{count} gebied(en) ingelezen. '{first_name}' is actief gemaakt.")
+                    st.rerun()
                 else:
                     st.warning("In dit bestand zijn geen bruikbare gebieden gevonden.")
             except Exception as e:
@@ -212,7 +238,7 @@ with tab_areas:
         }, ensure_ascii=False, indent=2)
 
         st.download_button(
-            "💾 Alle gebieden opslaan",
+            "💾 Alle gebieden opslaan als bestand",
             export,
             "mijn_biodiversiteitsgebieden.geojson",
             "application/geo+json",
@@ -230,7 +256,7 @@ with tab_areas:
             }, ensure_ascii=False, indent=2)
             safe = "".join(c if c.isalnum() or c in "-_" else "_" for c in active_for_manage).strip("_") or "gebied"
             st.download_button(
-                "💾 Alleen actief gebied opslaan",
+                "💾 Actief gebied opslaan als bestand",
                 single,
                 f"{safe}.geojson",
                 "application/geo+json",
@@ -737,7 +763,7 @@ with tab_dashboard:
             checkpoint("DASHBOARD_RENDER_DONE")
 
 st.caption(
-    "iPad/web prototype v0.12 · snelle taxonomie + interactieve heatmap · "
+    "iPad/web prototype v0.13 · snelle taxonomie + interactieve heatmap · "
     "geen iNaturalist-analyse vóór je op ‘Analyseer dit gebied’ drukt."
 )
 
