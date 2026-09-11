@@ -791,6 +791,10 @@ with tab_dashboard:
                 category_orders={
                     "categorie": ["eerder bekende soorten", "nieuwe soorten"]
                 },
+                color_discrete_map={
+                    "eerder bekende soorten": "#1f4e79",
+                    "nieuwe soorten": "#d62728",
+                },
                 labels={
                     "periode": "Kwartaal",
                     "aantal": "Aantal soorten",
@@ -816,6 +820,7 @@ with tab_dashboard:
             )
 
             fig_quarter.update_layout(
+                barmode="stack",
                 legend_title_text="",
                 xaxis_title="Kwartaal",
                 yaxis_title="Cumulatief aantal soorten",
@@ -845,7 +850,7 @@ with tab_dashboard:
             checkpoint("DASHBOARD_RENDER_DONE")
 
 st.caption(
-    "iPad/web prototype v0.15 · snelle taxonomie + interactieve heatmap · "
+    "iPad/web prototype v0.16 · snelle taxonomie + interactieve heatmap · "
     "geen iNaturalist-analyse vóór je op ‘Analyseer dit gebied’ drukt."
 )
 
