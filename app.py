@@ -602,30 +602,32 @@ def build_target_species_table(
 @st.cache_data(ttl=86400, show_spinner=False)
 def fetch_taxa_by_ids(ids_tuple, locale="nl"):
     """
-    Haal veel taxonrecords efficiënt op via /v1/taxa met taxon_id als queryparameter.
-    Dit vermijdt honderden /v1/taxa/{id1,id2,...}-requests.
+    Haal taxonrecords exact op via de iNaturalist multi-ID-route.
+
+    /v1/taxa?taxon_id=id1,id2 filtert de taxa-index niet op deze ID's en
+    retourneert daardoor een algemene resultatenpagina. De gedocumenteerde
+    /v1/taxa/id1,id2-route retourneert wel exact de gevraagde records.
     """
     ids = sorted({int(x) for x in ids_tuple if x})
     result = {}
 
-    # iNaturalist /v1/taxa kan veel taxa per pagina teruggeven.
-    # We houden de chunks ruim onder 500 om URLs/parameters beheersbaar te houden.
-    chunk_size = 350
+    # De multi-ID-route levert maximaal een compacte pagina. Kleine batches
+    # houden zowel het pad als het antwoord beheersbaar en betrouwbaar.
+    chunk_size = 30
 
     for start in range(0, len(ids), chunk_size):
         batch = ids[start:start + chunk_size]
         checkpoint(f"TAXON_QUERY_BATCH start={start} size={len(batch)}")
 
         try:
+            url = f"{TAXA_API}/{','.join(str(x) for x in batch)}"
             params = {
-                "taxon_id": ",".join(str(x) for x in batch),
-                "per_page": 500,
-                "page": 1,
+                "per_page": len(batch),
                 "locale": locale,
             }
             if locale == "nl":
                 params["preferred_place_id"] = 7506
-            r = requests.get(TAXA_API, params=params, timeout=(10, 45))
+            r = requests.get(url, params=params, timeout=(10, 45))
             r.raise_for_status()
             payload = r.json()
 
@@ -1766,7 +1768,7 @@ with tab_dashboard:
             checkpoint("DASHBOARD_RENDER_DONE")
 
 st.caption(
-    "versie 1.2 · Atlas-koppeling v0.29 · vaste overzichtskeuze + Target-instellingen vóór analyse · "
+    "versie 1.2 · Atlas-koppeling v0.30 · vaste overzichtskeuze + Target-instellingen vóór analyse · "
     "geen iNaturalist-analyse vóór je op ‘Analyseer dit gebied’ drukt."
 )
 
