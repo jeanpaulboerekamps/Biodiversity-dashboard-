@@ -3,7 +3,7 @@
 <base href="https://jeanpaulboerekamps.github.io/Atlas-of-life/">
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no">
-<title>Atlas of Life — v79 iPad-prestatiemodus</title>
+<title>Atlas of Life — v80 gekoppelde waarnemingspunten</title>
 <style>
 :root{--sea:#1e9fd0;--ink:#17372f;--panel:#fffdf9f5;--muted:#60776e}
 *{box-sizing:border-box}
@@ -95,7 +95,7 @@ html.lightweight .card{backdrop-filter:none!important}
 </svg>
 <canvas id="personalDensity" aria-hidden="true"></canvas>
 <div class="top">
-  <div class="card brand"><b>Atlas of Life</b><small>v79 · iPad-prestatiemodus</small></div>
+  <div class="card brand"><b>Atlas of Life</b><small>v80 · gekoppelde waarnemingspunten</small></div>
   <div class="card search"><input id="search" placeholder="Zoek taxon…" autocomplete="off"></div>
   <div class="card controls"><button id="home">Wereld</button></div>
 </div>
@@ -1698,12 +1698,21 @@ function drawPersonalOverlay(z,ts=0){
     personalCtx.fillStyle='#087fd1';
     for(const p of visible){
       const live=livePersonalPoint(p);
+      /* At species scale an old exported coordinate may no longer be shown as
+         a free-floating dot. Wait for the exact live species geometry. */
+      if(z>=18&&!live.r)continue;
       const sx=(live.x-view.x)/view.w*w,sy=(live.y-view.y)/view.h*h;
       const speciesRadiusPx=live.r*Math.min(w/view.w,h/view.h);
       const radius=speciesRadiusPx>0
-        ? Math.max(.8,Math.min(5.5,Math.max(2.5,speciesRadiusPx*.24),speciesRadiusPx-1))
-        : 2.5+1.5*pointMix;
-      personalCtx.beginPath();personalCtx.arc(sx,sy,radius,0,Math.PI*2);personalCtx.fill();
+        ? Math.max(.1,Math.min(9,Math.max(4,speciesRadiusPx*.38),speciesRadiusPx-1.25))
+        : 3+2*pointMix;
+      personalCtx.beginPath();personalCtx.arc(sx,sy,radius,0,Math.PI*2);
+      personalCtx.fill();
+      if(speciesRadiusPx>2.2){
+        personalCtx.strokeStyle='rgba(255,255,255,.92)';
+        personalCtx.lineWidth=1;
+        personalCtx.stroke();
+      }
     }
   }
   personalCtx.globalAlpha=1;
@@ -2679,6 +2688,38 @@ async function findLazyTaxon(q){
   return taxon;
 }
 
+let personalResolveBusy=false,personalResolveViewportKey='',personalResolveBudget=0;
+const personalResolveAttempts=new Map();
+async function maybeResolveVisiblePersonalSpecies(z){
+  if(z<18||personalResolveBusy||!personalCoordinates.length)return;
+  const key=[Math.round(view.x/view.w*14),Math.round(view.y/view.h*14),
+    Math.round(Math.log2(Math.max(1,z))*3)].join('|');
+  if(key!==personalResolveViewportKey){
+    personalResolveViewportKey=key;
+    personalResolveBudget=1;
+  }
+  if(personalResolveBudget<=0)return;
+
+  const now=Date.now();
+  const point=visiblePersonalPoints().find(p=>
+    !liveSpeciesByName.has(p.n)&&now-(personalResolveAttempts.get(p.n)||0)>30000
+  );
+  if(!point)return;
+
+  personalResolveBudget--;
+  personalResolveAttempts.set(point.n,now);
+  personalResolveBusy=true;
+  try{
+    await findLazyTaxon(point.n);
+    lastOverlayKey='';
+  }catch(err){
+    console.warn('Waargenomen soort kon niet live worden gekoppeld',point.n,err);
+  }finally{
+    personalResolveBusy=false;
+    lastSemantic=-1;
+  }
+}
+
 /* v69: MijnBiodiversiteit already knows the taxonomic lineage of every
    observed species. Use those names directly instead of downloading and
    parsing the 253 MB Atlas search index on the visitor's device. */
@@ -2891,6 +2932,8 @@ function semantic(z,force=false){
     const made=materialiseVisibleSpecies(z);
     if(made)requestAnimationFrame(()=>semantic(z,true));
   });
+  if(!interactionActive&&settled&&z>=18)
+    queueMicrotask(()=>maybeResolveVisiblePersonalSpecies(z));
 }
 
 /* v41 manual-navigation fast path */
@@ -3023,9 +3066,9 @@ function anim(ts){
   const landPct=Math.max(0,Math.min(100,100*(payload.meta.worldLandFraction||0)));
   const openPct=100-landPct;
   const worstPct=100*(payload.meta.worstChildLandFraction||0);
-  status.textContent=`v79 · ${payload.meta.taxa||taxa.length} taxa · ORDER-FIRST ${payload.meta.orderFirstCount||0} ordes · wereld open ${openPct.toFixed(1)}% · slechtste lokaal open ${(100-worstPct).toFixed(1)}% (${payload.meta.worstChildTaxon||'—'} → ${payload.meta.worstChildRank||'—'})`;
+  status.textContent=`v80 · ${payload.meta.taxa||taxa.length} taxa · ORDER-FIRST ${payload.meta.orderFirstCount||0} ordes · wereld open ${openPct.toFixed(1)}% · slechtste lokaal open ${(100-worstPct).toFixed(1)}% (${payload.meta.worstChildTaxon||'—'} → ${payload.meta.worstChildRank||'—'})`;
 }
-console.log('Atlas v79 · iPad-prestatiemodus',payload.meta.worldLandFraction);
+console.log('Atlas v80 · gekoppelde waarnemingspunten',payload.meta.worldLandFraction);
 home();requestAnimationFrame(anim);
 }catch(err){
   console.error(err);
