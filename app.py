@@ -832,7 +832,12 @@ def pie_chart(data, names, values, title):
 
 
 def render_personal_atlas(df):
-    """Render the Atlas and couple observations by iNaturalist taxon id."""
+    """Render the Atlas and couple species by their iNaturalist taxon id.
+
+    Observations identified only to genus, family, a species complex, or a
+    higher rank do not have a species position.  Keep those records out of the
+    Atlas denominator instead of reporting them as missing species.
+    """
     source = "species_scientific" if "species_scientific" in df.columns else "wetenschappelijke naam"
     rank_columns = {
         "KINGDOM": "kingdom_scientific",
@@ -844,12 +849,18 @@ def render_personal_atlas(df):
         "SPECIES": source,
     }
     records_by_species = {}
+    unresolved_taxa = set()
     for _, row in df.iterrows():
         species = str(row.get(source) or "").strip()
         if not species or species.lower() == "nan":
             continue
         raw_taxon_id = row.get("species_id")
         taxon_id = int(raw_taxon_id) if pd.notna(raw_taxon_id) else None
+        if taxon_id is None:
+            observed_name = str(row.get("wetenschappelijke naam") or species).strip()
+            observed_rank = str(row.get("taxon_rank") or "onbekende rang").strip()
+            unresolved_taxa.add((observed_rank.casefold(), observed_name.casefold()))
+            continue
         record = {
             "taxonId": taxon_id,
             "scientificName": species,
@@ -864,7 +875,7 @@ def render_personal_atlas(df):
             value = str(row.get(column) or "").strip()
             if value and value.lower() != "nan":
                 record[rank] = value
-        key = f"id:{taxon_id}" if taxon_id is not None else f"name:{species.casefold()}"
+        key = f"id:{taxon_id}"
         records_by_species.setdefault(key, record)
     taxonomy_records = [records_by_species[key] for key in sorted(records_by_species)]
     if not taxonomy_records:
@@ -890,10 +901,16 @@ def render_personal_atlas(df):
         1,
     )
     components.html(component, height=810, scrolling=False)
+    excluded = len(unresolved_taxa)
+    exclusion_text = (
+        f" {excluded} unieke taxonnamen zijn niet meegeteld als soort, omdat de "
+        "waarnemingen niet tot soortniveau konden worden herleid."
+        if excluded else ""
+    )
     st.caption(
-        f"{len(taxonomy_records)} unieke waargenomen soorten aangeboden aan de Atlas. "
+        f"{len(taxonomy_records)} unieke, tot soort herleide taxa aangeboden aan de Atlas. "
         "De koppeling gebruikt iNaturalist taxon-ID's; wetenschappelijke, Nederlandse "
-        "en Engelse namen blijven beschikbaar voor zoeken en weergave."
+        f"en Engelse namen blijven beschikbaar voor zoeken en weergave.{exclusion_text}"
     )
 
 
@@ -1168,6 +1185,7 @@ with tab_dashboard:
                             "datum": o.get("observed_on"),
                             "Nederlandse naam": nl_name,
                             "wetenschappelijke naam": taxon.get("name"),
+                            "taxon_rank": taxon.get("rank"),
                             "species_id": species_id,
                             "species_nl": species_nl,
                             "species_en": species_en,
@@ -1748,7 +1766,7 @@ with tab_dashboard:
             checkpoint("DASHBOARD_RENDER_DONE")
 
 st.caption(
-    "versie 1.2 · vaste overzichtskeuze + Target-instellingen vóór analyse · "
+    "versie 1.2 · Atlas-koppeling v0.29 · vaste overzichtskeuze + Target-instellingen vóór analyse · "
     "geen iNaturalist-analyse vóór je op ‘Analyseer dit gebied’ drukt."
 )
 
