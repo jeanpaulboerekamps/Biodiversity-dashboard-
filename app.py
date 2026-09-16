@@ -600,7 +600,7 @@ def build_target_species_table(
 
 
 @st.cache_data(ttl=86400, show_spinner=False)
-def fetch_taxa_by_ids(ids_tuple):
+def fetch_taxa_by_ids(ids_tuple, locale="nl"):
     """
     Haal veel taxonrecords efficiënt op via /v1/taxa met taxon_id als queryparameter.
     Dit vermijdt honderden /v1/taxa/{id1,id2,...}-requests.
@@ -621,9 +621,10 @@ def fetch_taxa_by_ids(ids_tuple):
                 "taxon_id": ",".join(str(x) for x in batch),
                 "per_page": 500,
                 "page": 1,
-                "locale": "nl",
-                "preferred_place_id": 7506,
+                "locale": locale,
             }
+            if locale == "nl":
+                params["preferred_place_id"] = 7506
             r = requests.get(TAXA_API, params=params, timeout=(10, 45))
             r.raise_for_status()
             payload = r.json()
@@ -636,7 +637,9 @@ def fetch_taxa_by_ids(ids_tuple):
         except Exception as e:
             log.exception("TAXON_QUERY_BATCH_ERROR %s", e)
 
-    checkpoint(f"TAXON_QUERY_DONE requested={len(ids)} returned={len(result)}")
+    checkpoint(
+        f"TAXON_QUERY_DONE locale={locale} requested={len(ids)} returned={len(result)}"
+    )
     return result
 
 
@@ -829,7 +832,7 @@ def pie_chart(data, names, values, title):
 
 
 def render_personal_atlas(df):
-    """Render the fixed Atlas map with a coordinate-based observation layer."""
+    """Render the Atlas and couple observations by iNaturalist taxon id."""
     source = "species_scientific" if "species_scientific" in df.columns else "wetenschappelijke naam"
     rank_columns = {
         "KINGDOM": "kingdom_scientific",
@@ -845,12 +848,24 @@ def render_personal_atlas(df):
         species = str(row.get(source) or "").strip()
         if not species or species.lower() == "nan":
             continue
-        record = {}
+        raw_taxon_id = row.get("species_id")
+        taxon_id = int(raw_taxon_id) if pd.notna(raw_taxon_id) else None
+        record = {
+            "taxonId": taxon_id,
+            "scientificName": species,
+        }
+        common_nl = str(row.get("species_nl") or "").strip()
+        common_en = str(row.get("species_en") or "").strip()
+        if common_nl and common_nl.lower() != "nan":
+            record["commonNameNl"] = common_nl
+        if common_en and common_en.lower() != "nan":
+            record["commonNameEn"] = common_en
         for rank, column in rank_columns.items():
             value = str(row.get(column) or "").strip()
             if value and value.lower() != "nan":
                 record[rank] = value
-        records_by_species.setdefault(species.casefold(), record)
+        key = f"id:{taxon_id}" if taxon_id is not None else f"name:{species.casefold()}"
+        records_by_species.setdefault(key, record)
     taxonomy_records = [records_by_species[key] for key in sorted(records_by_species)]
     if not taxonomy_records:
         st.info("Er zijn nog geen wetenschappelijke soortnamen voor de Atlas beschikbaar.")
@@ -877,8 +892,8 @@ def render_personal_atlas(df):
     components.html(component, height=810, scrolling=False)
     st.caption(
         f"{len(taxonomy_records)} unieke waargenomen soorten aangeboden aan de Atlas. "
-        "Blauw toont waargenomen soorten. Uitgezoomd worden de vaste soortpunten "
-        "uitsluitend op positie tot ruimtelijke dichtheidsvakken samengevoegd."
+        "De koppeling gebruikt iNaturalist taxon-ID's; wetenschappelijke, Nederlandse "
+        "en Engelse namen blijven beschikbaar voor zoeken en weergave."
     )
 
 
@@ -1073,6 +1088,7 @@ with tab_dashboard:
                     }
 
                     taxon_lookup = {}
+                    english_species_lookup = {}
                     if need_taxonomy:
                         st.write("Taxonomische indeling bepalen…")
                         checkpoint("FAST_TAXONOMY_START")
@@ -1087,6 +1103,24 @@ with tab_dashboard:
                             f"unique_taxa={len(all_ancestor_ids)}"
                         )
                         taxon_lookup = fetch_taxa_by_ids(tuple(sorted(all_ancestor_ids)))
+
+                        # English names are fetched only for the observed species,
+                        # not for the complete ancestry. This keeps API traffic
+                        # bounded while making the Atlas payload bilingual.
+                        observed_species_ids = set()
+                        for observation in inside:
+                            observed_taxon = observation.get("taxon") or {}
+                            if observed_taxon.get("rank") == "species" and observed_taxon.get("id"):
+                                observed_species_ids.add(int(observed_taxon["id"]))
+                            else:
+                                observed_species_id = rank_id_from_ancestors(
+                                    observed_taxon, taxon_lookup, "species"
+                                )
+                                if observed_species_id:
+                                    observed_species_ids.add(int(observed_species_id))
+                        english_species_lookup = fetch_taxa_by_ids(
+                            tuple(sorted(observed_species_ids)), "en"
+                        )
 
                     out = []
                     for o in inside:
@@ -1115,6 +1149,13 @@ with tab_dashboard:
                         species_rec = taxon_lookup.get(species_id, {}) if species_id else {}
                         species_nl = species_rec.get("preferred_common_name") or nl_name
                         species_scientific = species_rec.get("name") or taxon.get("name")
+                        species_rec_en = (
+                            english_species_lookup.get(species_id, {}) if species_id else {}
+                        )
+                        species_en = (
+                            species_rec_en.get("preferred_common_name")
+                            or species_scientific
+                        )
 
                         photos = o.get("photos") or []
                         photo_url = None
@@ -1129,6 +1170,7 @@ with tab_dashboard:
                             "wetenschappelijke naam": taxon.get("name"),
                             "species_id": species_id,
                             "species_nl": species_nl,
+                            "species_en": species_en,
                             "species_scientific": species_scientific,
                             "observation_id": o.get("id"),
                             "photo_url": photo_url,
