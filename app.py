@@ -11,6 +11,7 @@ import plotly.express as px
 import plotly.graph_objects as go
 import requests
 import streamlit as st
+import streamlit.components.v1 as components
 from folium.plugins import Draw, HeatMap
 from shapely.geometry import Point, shape
 from streamlit_folium import st_folium
@@ -83,7 +84,7 @@ if "show_help" not in st.session_state:
 if "show_privacy" not in st.session_state:
     st.session_state.show_privacy = False
 
-st.markdown('<span class="release-badge">Versie 1.2</span>', unsafe_allow_html=True)
+st.markdown('<span class="release-badge">Versie 1.3</span>', unsafe_allow_html=True)
 st.title("🌿 Mijn Biodiversiteit")
 st.caption("Ontdek de natuur om je heen — met openbare waarnemingen van iNaturalist en optioneel Waarneming.nl.")
 
@@ -826,6 +827,52 @@ def pie_chart(data, names, values, title):
     st.plotly_chart(fig, use_container_width=True)
 
 
+def render_personal_atlas(df):
+    """Embed Atlas of Life and send unique observed scientific species names."""
+    source = "species_scientific" if "species_scientific" in df.columns else "wetenschappelijke naam"
+    species_names = sorted({
+        str(value).strip()
+        for value in df[source].dropna().tolist()
+        if str(value).strip()
+    })
+    if not species_names:
+        st.info("Er zijn nog geen wetenschappelijke soortnamen voor de Atlas beschikbaar.")
+        return
+
+    try:
+        atlas_url = str(st.secrets.get("ATLAS_OF_LIFE_URL", "")).strip()
+    except Exception:
+        atlas_url = ""
+    atlas_url = atlas_url or "https://jeanpaulboerekamps.github.io/Atlas-of-life-main/"
+    if not atlas_url.endswith("/"):
+        atlas_url += "/"
+
+    payload = json.dumps(species_names, ensure_ascii=False).replace("</", "<\\/")
+    safe_url = html.escape(atlas_url, quote=True)
+    component = f"""
+    <style>
+      html,body{{margin:0;height:100%;overflow:hidden;background:#1688bd}}
+      #atlas{{display:block;width:100%;height:790px;border:0;border-radius:16px}}
+    </style>
+    <iframe id="atlas" src="{safe_url}" title="Mijn waarnemingen in Atlas of Life"
+      allow="fullscreen"></iframe>
+    <script>
+      const atlas=document.getElementById('atlas');
+      const message={{type:'atlas-observations',speciesNames:{payload}}};
+      const send=()=>atlas.contentWindow.postMessage(message,'*');
+      atlas.addEventListener('load',()=>setTimeout(send,250));
+      window.addEventListener('message',event=>{{
+        if(event.data && event.data.type==='atlas-ready')send();
+      }});
+    </script>
+    """
+    components.html(component, height=810, scrolling=False)
+    st.caption(
+        f"{len(species_names)} unieke waargenomen soorten aangeboden aan de Atlas. "
+        "Blauw toont waargenomen soorten; op hogere niveaus geeft intenser blauw meer soorten aan."
+    )
+
+
 with tab_dashboard:
     active = st.session_state.active_area
 
@@ -855,6 +902,7 @@ with tab_dashboard:
             "Kies overzicht",
             [
                 "Taxonomische samenstelling",
+                "Mijn waarnemingen in Atlas of Life",
                 "Heatmap",
                 "Per jaar",
                 "Gemiddeld per kalendermaand",
@@ -949,6 +997,13 @@ with tab_dashboard:
                 )
                 st.stop()
 
+            if (
+                overview_choice == "Mijn waarnemingen in Atlas of Life"
+                and mode != "Mijn waarnemingen"
+            ):
+                st.error("Kies voor deze Atlas-weergave ‘Mijn waarnemingen’.")
+                st.stop()
+
             try:
                 checkpoint("ANALYSIS_START")
 
@@ -1003,6 +1058,7 @@ with tab_dashboard:
 
                     need_taxonomy = overview_choice in {
                         "Taxonomische samenstelling",
+                        "Mijn waarnemingen in Atlas of Life",
                         "Tijdlijn nieuwe soorten",
                         "Target soorten",
                     }
@@ -1138,6 +1194,7 @@ with tab_dashboard:
 
             taxonomy_needed_now = selected_overview in {
                 "Taxonomische samenstelling",
+                "Mijn waarnemingen in Atlas of Life",
                 "Tijdlijn nieuwe soorten",
                 "Target soorten",
             }
@@ -1166,6 +1223,15 @@ with tab_dashboard:
                 )
                 pie_chart(group_counts, "soortgroep", "waarnemingen", "Waarnemingen per soortgroep")
 
+            if selected_overview == "Mijn waarnemingen in Atlas of Life" and taxonomy_available:
+                st.subheader("Mijn waarnemingen in Atlas of Life")
+                st.caption(
+                    "Blauwe soorten zijn door jou in het gekozen gebied en de gekozen periode "
+                    "waargenomen. De blauwe intensiteit wordt naar boven door de taxonomie opgeteld."
+                )
+                render_personal_atlas(df)
+
+            if selected_overview == "Taxonomische samenstelling" and taxonomy_available:
                 insects = df[df["soortgroep"].eq("Insecta")].copy()
 
                 if not insects.empty:
