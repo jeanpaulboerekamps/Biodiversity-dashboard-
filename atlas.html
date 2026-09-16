@@ -3,7 +3,7 @@
 <base href="https://jeanpaulboerekamps.github.io/Atlas-of-life/">
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no">
-<title>Atlas of Life — v78 ruimtelijke waarnemingslaag</title>
+<title>Atlas of Life — v79 iPad-prestatiemodus</title>
 <style>
 :root{--sea:#1e9fd0;--ink:#17372f;--panel:#fffdf9f5;--muted:#60776e}
 *{box-sizing:border-box}
@@ -21,6 +21,8 @@ svg{position:absolute;inset:0;width:100%;height:100%;touch-action:none;user-sele
 svg.fastInteraction .taxonPath{filter:none!important}
 svg.fastInteraction .label{display:none!important}
 svg.fastInteraction .latin{display:none!important}
+html.lightweight .taxonPath{filter:none!important;transition:none!important}
+html.lightweight .card{backdrop-filter:none!important}
 .continentHaloWide,.continentHaloNear{display:none}
 .genusBoundary{display:none}
 
@@ -93,7 +95,7 @@ svg.fastInteraction .latin{display:none!important}
 </svg>
 <canvas id="personalDensity" aria-hidden="true"></canvas>
 <div class="top">
-  <div class="card brand"><b>Atlas of Life</b><small>v78 · ruimtelijke waarnemingslaag</small></div>
+  <div class="card brand"><b>Atlas of Life</b><small>v79 · iPad-prestatiemodus</small></div>
   <div class="card search"><input id="search" placeholder="Zoek taxon…" autocomplete="off"></div>
   <div class="card controls"><button id="home">Wereld</button></div>
 </div>
@@ -113,6 +115,8 @@ const levelEl=document.getElementById('level'), crumbs=document.getElementById('
 const personalLegend=document.getElementById('personalLegend');
 const personalCanvas=document.getElementById('personalDensity');
 const personalCtx=personalCanvas.getContext('2d');
+const LIGHTWEIGHT_MODE=matchMedia('(pointer:coarse)').matches||/iPad|iPhone|iPod/.test(navigator.userAgent);
+if(LIGHTWEIGHT_MODE)document.documentElement.classList.add('lightweight');
 
 const payload=await fetch('data/taxa.json',{cache:'no-store'}).then(r=>r.json());
 const taxa=payload.taxa;
@@ -1586,6 +1590,7 @@ let coordinateExportMode=false;
 const liveSpeciesByName=new Map();
 const PERSONAL_INDEX_CELL=48;
 let personalSpatialIndex=new Map();
+let lastOverlayDraw=0;
 function speciesBeadFill(t){return ((+t.speciesChainIndex||0)&1)?'#fffdf8':'#111'}
 function personalNameKey(t){return `${detailRank(t)}|${norm(t.canonicalName||t.name)}`}
 function isRelatedToPersonalFocus(t){
@@ -1615,7 +1620,9 @@ function speciesLabelClass(t){
 }
 
 function resizePersonalCanvas(){
-  const dpr=Math.min(2,window.devicePixelRatio||1);
+  /* A full-screen 2x canvas is costly on iPad and adds no useful precision to
+     density cells. Species beads remain crisp enough at one device pixel. */
+  const dpr=LIGHTWEIGHT_MODE?1:Math.min(2,window.devicePixelRatio||1);
   const w=Math.max(1,personalCanvas.clientWidth),h=Math.max(1,personalCanvas.clientHeight);
   const pw=Math.round(w*dpr),ph=Math.round(h*dpr);
   if(personalCanvas.width!==pw||personalCanvas.height!==ph){
@@ -1651,7 +1658,10 @@ function livePersonalPoint(p){
   return{x:species.center.x,y:species.center.y,
     r:Math.max(0,Math.min(species.box.w,species.box.h)/2)};
 }
-function drawPersonalOverlay(z){
+function drawPersonalOverlay(z,ts=0){
+  const interval=LIGHTWEIGHT_MODE?110:50;
+  if(ts&&ts-lastOverlayDraw<interval)return;
+  lastOverlayDraw=ts||performance.now();
   const size=resizePersonalCanvas(),w=size.w,h=size.h;
   const key=[personalCoordinateVersion,w,h,
     view.x.toFixed(2),view.y.toFixed(2),view.w.toFixed(2),view.h.toFixed(2)].join('|');
@@ -1753,7 +1763,7 @@ function renderTaxon(t){
     const rr=(t.rank||'').toUpperCase();
     /* Keep the kingdom palette crisp at world scale; texture only begins on
        the lower geographic layers. */
-    if(['PHYLUM','CLASS','ORDER'].includes(rr))
+    if(!LIGHTWEIGHT_MODE&&['PHYLUM','CLASS','ORDER'].includes(rr))
       p.setAttribute('filter','url(#landTexture)');
   }
 
@@ -2579,8 +2589,20 @@ function materialiseVisibleSpecies(z){
    This preserves the v40/v41 performance improvements. */
 let detailAutoLoadBusy=false;
 const detailAttempts=new Map();
+let autoLoadViewportKey='',autoLoadViewportBudget=0;
 async function maybeLoadVisibleDetails(z,ordersOnly=false){
   if(detailAutoLoadBusy)return;
+
+  /* Never let completed detail requests start an endless load/layout cascade.
+     One automatic shard per settled viewport is enough; taps and search still
+     load the requested branch immediately. */
+  const viewportKey=[Math.round(view.x/view.w*12),Math.round(view.y/view.h*12),
+    Math.round(Math.log2(Math.max(1,z))*3)].join('|');
+  if(viewportKey!==autoLoadViewportKey){
+    autoLoadViewportKey=viewportKey;
+    autoLoadViewportBudget=1;
+  }
+  if(autoLoadViewportBudget<=0)return;
 
   let candidate=null;
   let candidateScore=0;
@@ -2606,6 +2628,7 @@ async function maybeLoadVisibleDetails(z,ordersOnly=false){
   }
 
   if(!candidate)return;
+  autoLoadViewportBudget--;
   detailAttempts.set(String(candidate.t.id),Date.now());
   detailAutoLoadBusy=true;
   try{
@@ -2807,10 +2830,16 @@ function materialiseVisibleDetails(z){
   }
   return made;
 }
+let lastSemanticAt=0;
 function semantic(z,force=false){
+  const now=performance.now();
+  if(LIGHTWEIGHT_MODE&&!force&&now-lastSemanticAt<90)return;
   if(!force&&Math.abs(z-lastSemantic)<.08)return;
+  lastSemanticAt=now;
   lastSemantic=z;
-  if(!interactionActive)materialiseVisibleDetails(z);
+  const settled=Math.abs(target.x-view.x)<view.w*.004&&
+    Math.abs(target.y-view.y)<view.h*.004&&Math.abs(target.w-view.w)<view.w*.006;
+  if(!interactionActive&&(!LIGHTWEIGHT_MODE||settled))materialiseVisibleDetails(z);
   let deepest=0;
   for(const o of elems){
     const zoomVisible=z>=+o.p.dataset.minz;
@@ -2856,8 +2885,9 @@ function semantic(z,force=false){
   }
 
   /* Never block the render loop on network I/O. */
-  if(!interactionActive&&z>=2.5)queueMicrotask(()=>maybeLoadVisibleDetails(z,false));
-  if(!interactionActive&&z>=SPECIES_MATERIALISE_Z)queueMicrotask(()=>{
+  if(!interactionActive&&(!LIGHTWEIGHT_MODE||settled)&&z>=2.5)
+    queueMicrotask(()=>maybeLoadVisibleDetails(z,false));
+  if(!interactionActive&&(!LIGHTWEIGHT_MODE||settled)&&z>=SPECIES_MATERIALISE_Z)queueMicrotask(()=>{
     const made=materialiseVisibleSpecies(z);
     if(made)requestAnimationFrame(()=>semantic(z,true));
   });
@@ -2984,7 +3014,7 @@ function anim(ts){
   svg.setAttribute('viewBox',`${view.x} ${view.y} ${view.w} ${view.h}`);
   const z=2400/view.w;
   zoomEl.textContent=z.toFixed(2)+'×';
-  drawPersonalOverlay(z);
+  drawPersonalOverlay(z,ts);
 
   if(!interactionActive)semantic(z);
   requestAnimationFrame(anim)
@@ -2993,9 +3023,9 @@ function anim(ts){
   const landPct=Math.max(0,Math.min(100,100*(payload.meta.worldLandFraction||0)));
   const openPct=100-landPct;
   const worstPct=100*(payload.meta.worstChildLandFraction||0);
-  status.textContent=`v78 · ${payload.meta.taxa||taxa.length} taxa · ORDER-FIRST ${payload.meta.orderFirstCount||0} ordes · wereld open ${openPct.toFixed(1)}% · slechtste lokaal open ${(100-worstPct).toFixed(1)}% (${payload.meta.worstChildTaxon||'—'} → ${payload.meta.worstChildRank||'—'})`;
+  status.textContent=`v79 · ${payload.meta.taxa||taxa.length} taxa · ORDER-FIRST ${payload.meta.orderFirstCount||0} ordes · wereld open ${openPct.toFixed(1)}% · slechtste lokaal open ${(100-worstPct).toFixed(1)}% (${payload.meta.worstChildTaxon||'—'} → ${payload.meta.worstChildRank||'—'})`;
 }
-console.log('Atlas v78 · ruimtelijke waarnemingslaag',payload.meta.worldLandFraction);
+console.log('Atlas v79 · iPad-prestatiemodus',payload.meta.worldLandFraction);
 home();requestAnimationFrame(anim);
 }catch(err){
   console.error(err);
