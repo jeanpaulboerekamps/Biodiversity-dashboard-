@@ -3,7 +3,7 @@
 <base href="https://jeanpaulboerekamps.github.io/Atlas-of-life/">
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no">
-<title>Atlas of Life — v80 gekoppelde waarnemingspunten</title>
+<title>Atlas of Life — v81 continue waarnemingslaag</title>
 <style>
 :root{--sea:#1e9fd0;--ink:#17372f;--panel:#fffdf9f5;--muted:#60776e}
 *{box-sizing:border-box}
@@ -95,7 +95,7 @@ html.lightweight .card{backdrop-filter:none!important}
 </svg>
 <canvas id="personalDensity" aria-hidden="true"></canvas>
 <div class="top">
-  <div class="card brand"><b>Atlas of Life</b><small>v80 · gekoppelde waarnemingspunten</small></div>
+  <div class="card brand"><b>Atlas of Life</b><small>v81 · continue waarnemingslaag</small></div>
   <div class="card search"><input id="search" placeholder="Zoek taxon…" autocomplete="off"></div>
   <div class="card controls"><button id="home">Wereld</button></div>
 </div>
@@ -1673,7 +1673,9 @@ function drawPersonalOverlay(z,ts=0){
   const visible=visiblePersonalPoints();
   if(!visible.length)return;
 
-  const pointMix=Math.max(0,Math.min(1,(z-12)/9));
+  /* Start individual locators before the density grid fades away, so there is
+     no zoom interval without a clearly visible observation layer. */
+  const pointMix=Math.max(0,Math.min(1,(z-5)/7));
   const targetWorld=view.w/(Math.max(1,w)/24);
   const cell=Math.pow(2,Math.round(Math.log2(Math.max(.02,targetWorld))));
   const bins=new Map();
@@ -1694,18 +1696,23 @@ function drawPersonalOverlay(z,ts=0){
   }
 
   if(pointMix>0){
-    personalCtx.globalAlpha=.35+.65*pointMix;
     personalCtx.fillStyle='#087fd1';
     for(const p of visible){
       const live=livePersonalPoint(p);
-      /* At species scale an old exported coordinate may no longer be shown as
-         a free-floating dot. Wait for the exact live species geometry. */
-      if(z>=18&&!live.r)continue;
       const sx=(live.x-view.x)/view.w*w,sy=(live.y-view.y)/view.h*h;
       const speciesRadiusPx=live.r*Math.min(w/view.w,h/view.h);
       const radius=speciesRadiusPx>0
-        ? Math.max(.1,Math.min(9,Math.max(4,speciesRadiusPx*.38),speciesRadiusPx-1.25))
-        : 3+2*pointMix;
+        ? Math.max(.1,Math.min(12,Math.max(5.5,speciesRadiusPx*.45),speciesRadiusPx-1.25))
+        : 5+2*pointMix;
+      personalCtx.globalAlpha=live.r?(.62+.38*pointMix):(.5+.35*pointMix);
+      if(!live.r){
+        /* Until exact geometry arrives, keep a conspicuous locator visible.
+           It is deliberately a ring, distinct from the final filled bead. */
+        personalCtx.strokeStyle='rgba(8,127,209,.72)';
+        personalCtx.lineWidth=3;
+        personalCtx.beginPath();personalCtx.arc(sx,sy,radius+3,0,Math.PI*2);personalCtx.stroke();
+        continue;
+      }
       personalCtx.beginPath();personalCtx.arc(sx,sy,radius,0,Math.PI*2);
       personalCtx.fill();
       if(speciesRadiusPx>2.2){
@@ -2691,12 +2698,12 @@ async function findLazyTaxon(q){
 let personalResolveBusy=false,personalResolveViewportKey='',personalResolveBudget=0;
 const personalResolveAttempts=new Map();
 async function maybeResolveVisiblePersonalSpecies(z){
-  if(z<18||personalResolveBusy||!personalCoordinates.length)return;
+  if(z<6.5||personalResolveBusy||!personalCoordinates.length)return;
   const key=[Math.round(view.x/view.w*14),Math.round(view.y/view.h*14),
     Math.round(Math.log2(Math.max(1,z))*3)].join('|');
   if(key!==personalResolveViewportKey){
     personalResolveViewportKey=key;
-    personalResolveBudget=1;
+    personalResolveBudget=3;
   }
   if(personalResolveBudget<=0)return;
 
@@ -2932,7 +2939,7 @@ function semantic(z,force=false){
     const made=materialiseVisibleSpecies(z);
     if(made)requestAnimationFrame(()=>semantic(z,true));
   });
-  if(!interactionActive&&settled&&z>=18)
+  if(!interactionActive&&settled&&z>=6.5)
     queueMicrotask(()=>maybeResolveVisiblePersonalSpecies(z));
 }
 
@@ -3066,9 +3073,9 @@ function anim(ts){
   const landPct=Math.max(0,Math.min(100,100*(payload.meta.worldLandFraction||0)));
   const openPct=100-landPct;
   const worstPct=100*(payload.meta.worstChildLandFraction||0);
-  status.textContent=`v80 · ${payload.meta.taxa||taxa.length} taxa · ORDER-FIRST ${payload.meta.orderFirstCount||0} ordes · wereld open ${openPct.toFixed(1)}% · slechtste lokaal open ${(100-worstPct).toFixed(1)}% (${payload.meta.worstChildTaxon||'—'} → ${payload.meta.worstChildRank||'—'})`;
+  status.textContent=`v81 · ${payload.meta.taxa||taxa.length} taxa · ORDER-FIRST ${payload.meta.orderFirstCount||0} ordes · wereld open ${openPct.toFixed(1)}% · slechtste lokaal open ${(100-worstPct).toFixed(1)}% (${payload.meta.worstChildTaxon||'—'} → ${payload.meta.worstChildRank||'—'})`;
 }
-console.log('Atlas v80 · gekoppelde waarnemingspunten',payload.meta.worldLandFraction);
+console.log('Atlas v81 · continue waarnemingslaag',payload.meta.worldLandFraction);
 home();requestAnimationFrame(anim);
 }catch(err){
   console.error(err);
