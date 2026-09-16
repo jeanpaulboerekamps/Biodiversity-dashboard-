@@ -3,7 +3,7 @@
 <base href="https://jeanpaulboerekamps.github.io/Atlas-of-life/">
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no">
-<title>Atlas of Life — v77 ruimtelijke waarnemingslaag</title>
+<title>Atlas of Life — v78 ruimtelijke waarnemingslaag</title>
 <style>
 :root{--sea:#1e9fd0;--ink:#17372f;--panel:#fffdf9f5;--muted:#60776e}
 *{box-sizing:border-box}
@@ -93,7 +93,7 @@ svg.fastInteraction .latin{display:none!important}
 </svg>
 <canvas id="personalDensity" aria-hidden="true"></canvas>
 <div class="top">
-  <div class="card brand"><b>Atlas of Life</b><small>v77 · ruimtelijke waarnemingslaag</small></div>
+  <div class="card brand"><b>Atlas of Life</b><small>v78 · ruimtelijke waarnemingslaag</small></div>
   <div class="card search"><input id="search" placeholder="Zoek taxon…" autocomplete="off"></div>
   <div class="card controls"><button id="home">Wereld</button></div>
 </div>
@@ -245,6 +245,10 @@ function fillFor(t){
     gradientCache.set(key,id);
   }
   return'url(#'+gradientCache.get(key)+')';
+}
+
+function setAttrIfChanged(node,name,value){
+  if(node.getAttribute(name)!==String(value))node.setAttribute(name,value);
 }
 
 function polygonArea(poly){let a=0;for(let i=0;i<poly.length;i++){const p=poly[i],q=poly[(i+1)%poly.length];a+=p.x*q.y-q.x*p.y}return a/2}
@@ -1579,6 +1583,9 @@ const personalSeenCounts=new Map(),personalSpeciesIds=new Set(),personalRankName
 let personalMode=false,personalMaxSeen=1,personalFocus=null;
 let personalCoordinates=[],personalCoordinateVersion=0,lastOverlayKey='';
 let coordinateExportMode=false;
+const liveSpeciesByName=new Map();
+const PERSONAL_INDEX_CELL=48;
+let personalSpatialIndex=new Map();
 function speciesBeadFill(t){return ((+t.speciesChainIndex||0)&1)?'#fffdf8':'#111'}
 function personalNameKey(t){return `${detailRank(t)}|${norm(t.canonicalName||t.name)}`}
 function isRelatedToPersonalFocus(t){
@@ -1618,6 +1625,32 @@ function resizePersonalCanvas(){
   }
   return{w,h};
 }
+function rebuildPersonalSpatialIndex(){
+  const next=new Map();
+  for(const p of personalCoordinates){
+    const key=Math.floor(p.x/PERSONAL_INDEX_CELL)+','+Math.floor(p.y/PERSONAL_INDEX_CELL);
+    if(!next.has(key))next.set(key,[]);
+    next.get(key).push(p);
+  }
+  personalSpatialIndex=next;
+}
+function visiblePersonalPoints(){
+  const out=[];
+  const x0=Math.floor(view.x/PERSONAL_INDEX_CELL),x1=Math.floor((view.x+view.w)/PERSONAL_INDEX_CELL);
+  const y0=Math.floor(view.y/PERSONAL_INDEX_CELL),y1=Math.floor((view.y+view.h)/PERSONAL_INDEX_CELL);
+  for(let iy=y0;iy<=y1;iy++)for(let ix=x0;ix<=x1;ix++){
+    for(const p of personalSpatialIndex.get(ix+','+iy)||[]){
+      if(p.x>=view.x&&p.x<=view.x+view.w&&p.y>=view.y&&p.y<=view.y+view.h)out.push(p);
+    }
+  }
+  return out;
+}
+function livePersonalPoint(p){
+  const species=liveSpeciesByName.get(p.n);
+  if(!species?.center||!species?.box)return{x:p.x,y:p.y,r:0};
+  return{x:species.center.x,y:species.center.y,
+    r:Math.max(0,Math.min(species.box.w,species.box.h)/2)};
+}
 function drawPersonalOverlay(z){
   const size=resizePersonalCanvas(),w=size.w,h=size.h;
   const key=[personalCoordinateVersion,w,h,
@@ -1627,9 +1660,7 @@ function drawPersonalOverlay(z){
   personalCtx.clearRect(0,0,w,h);
   if(!personalCoordinates.length)return;
 
-  const visible=personalCoordinates.filter(p=>
-    p.x>=view.x&&p.x<=view.x+view.w&&p.y>=view.y&&p.y<=view.y+view.h
-  );
+  const visible=visiblePersonalPoints();
   if(!visible.length)return;
 
   const pointMix=Math.max(0,Math.min(1,(z-12)/9));
@@ -1655,9 +1686,13 @@ function drawPersonalOverlay(z){
   if(pointMix>0){
     personalCtx.globalAlpha=.35+.65*pointMix;
     personalCtx.fillStyle='#087fd1';
-    const radius=1.8+2.4*pointMix;
     for(const p of visible){
-      const sx=(p.x-view.x)/view.w*w,sy=(p.y-view.y)/view.h*h;
+      const live=livePersonalPoint(p);
+      const sx=(live.x-view.x)/view.w*w,sy=(live.y-view.y)/view.h*h;
+      const speciesRadiusPx=live.r*Math.min(w/view.w,h/view.h);
+      const radius=speciesRadiusPx>0
+        ? Math.max(.8,Math.min(5.5,Math.max(2.5,speciesRadiusPx*.24),speciesRadiusPx-1))
+        : 2.5+1.5*pointMix;
       personalCtx.beginPath();personalCtx.arc(sx,sy,radius,0,Math.PI*2);personalCtx.fill();
     }
   }
@@ -1671,6 +1706,10 @@ function renderTaxon(t){
   t.box=polyBBox(t.poly);
   t.center=polygonCentroid(t.poly);
   t.area=absArea(t.poly);
+  if(detailRank(t)==='SPECIES'){
+    liveSpeciesByName.set(norm(t.canonicalName||t.name),t);
+    lastOverlayKey='';
+  }
 
   const drawnPoly=refineContour(t.poly,contourFactorFor(t),t.id);
   const d=displayPathForTaxon(t,drawnPoly);
@@ -1679,8 +1718,8 @@ function renderTaxon(t){
      Update an existing SVG node instead of returning with stale geometry. */
   const existing=renderedById.get(sid);
   if(existing){
-    existing.p.setAttribute('d',d);
-    existing.p.setAttribute('fill',displayFill(t));
+    setAttrIfChanged(existing.p,'d',d);
+    setAttrIfChanged(existing.p,'fill',displayFill(t));
     existing.text.setAttribute('x',t.center.x);
     existing.text.setAttribute('y',t.center.y);
     existing.text.textContent=t.vernacularName||t.canonicalName;
@@ -1712,7 +1751,9 @@ function renderTaxon(t){
 
   {
     const rr=(t.rank||'').toUpperCase();
-    if(['DOMAIN','KINGDOM','PHYLUM','CLASS','ORDER'].includes(rr))
+    /* Keep the kingdom palette crisp at world scale; texture only begins on
+       the lower geographic layers. */
+    if(['PHYLUM','CLASS','ORDER'].includes(rr))
       p.setAttribute('filter','url(#landTexture)');
   }
 
@@ -2634,7 +2675,7 @@ let pointFamilyIndexPromise=null;
 async function loadPersonalCoordinates(records){
   const wanted=new Set(records.map(r=>norm(r?.SPECIES)).filter(Boolean));
   if(!wanted.size){
-    personalCoordinates=[];personalCoordinateVersion++;lastOverlayKey='';
+    personalCoordinates=[];rebuildPersonalSpatialIndex();personalCoordinateVersion++;lastOverlayKey='';
     publishPersonalResult('atlas-observations-applied',0,records.length);
     return{matched:0,total:records.length};
   }
@@ -2675,12 +2716,13 @@ async function loadPersonalCoordinates(records){
     }
     await Promise.all(Array.from({length:Math.min(6,ids.length||1)},worker));
     personalCoordinates=[...matched.values()].filter(p=>Number.isFinite(p.x)&&Number.isFinite(p.y));
+    rebuildPersonalSpatialIndex();
     personalCoordinateVersion++;lastOverlayKey='';
     publishPersonalResult('atlas-observations-applied',personalCoordinates.length,records.length);
     return{matched:personalCoordinates.length,total:records.length};
   }catch(err){
     console.warn('Personal coordinate index unavailable',err);
-    personalCoordinates=[];personalCoordinateVersion++;lastOverlayKey='';
+    personalCoordinates=[];rebuildPersonalSpatialIndex();personalCoordinateVersion++;lastOverlayKey='';
     personalLegend.querySelector('span:last-child').textContent='soortcoördinaten niet beschikbaar';
     window.parent.postMessage({type:'atlas-observations-applied',matched:0,total:records.length,error:String(err)},'*');
     return{matched:0,total:records.length};
@@ -2781,12 +2823,13 @@ function semantic(z,force=false){
        not visually buried below one large blue polygon. */
     const childrenResolved=hasVisibleDetail(o.t,z);
     if(childrenResolved)
-      o.p.setAttribute('fill',fillFor(o.t));
+      setAttrIfChanged(o.p,'fill',fillFor(o.t));
     else
-      o.p.setAttribute('fill',displayFill(o.t));
+      setAttrIfChanged(o.p,'fill',displayFill(o.t));
 
-    o.p.style.display=visible?'':'none';
-    o.p.classList.toggle('hidden',!visible);
+    const display=visible?'':'none';
+    if(o.p.style.display!==display)o.p.style.display=display;
+    if(o.p.classList.contains('hidden')===visible)o.p.classList.toggle('hidden',!visible);
     if(visible)deepest=Math.max(deepest,o.t.depth||0);
 
     const screenW=(o.t.box?.w||0)*z,screenH=(o.t.box?.h||0)*z;
@@ -2796,8 +2839,9 @@ function semantic(z,force=false){
        halo, species names appear once their species is large enough on screen,
        and lower-rank labels disappear again automatically while zooming out. */
     const labelVisible=visible && z>=+o.text.dataset.minz && screenW>minW && screenH>minH;
-    o.text.style.display=labelVisible?'':'none';
-    o.text.classList.toggle('hidden',!labelVisible);
+    const labelDisplay=labelVisible?'':'none';
+    if(o.text.style.display!==labelDisplay)o.text.style.display=labelDisplay;
+    if(o.text.classList.contains('hidden')===labelVisible)o.text.classList.toggle('hidden',!labelVisible);
 
     if(labelVisible){
       let fs=Math.max(8,Math.min(22,8.5+Math.sqrt(Math.max(20,Math.min(screenW,screenH)*2))/4.4));
@@ -2949,9 +2993,9 @@ function anim(ts){
   const landPct=Math.max(0,Math.min(100,100*(payload.meta.worldLandFraction||0)));
   const openPct=100-landPct;
   const worstPct=100*(payload.meta.worstChildLandFraction||0);
-  status.textContent=`v77 · ${payload.meta.taxa||taxa.length} taxa · ORDER-FIRST ${payload.meta.orderFirstCount||0} ordes · wereld open ${openPct.toFixed(1)}% · slechtste lokaal open ${(100-worstPct).toFixed(1)}% (${payload.meta.worstChildTaxon||'—'} → ${payload.meta.worstChildRank||'—'})`;
+  status.textContent=`v78 · ${payload.meta.taxa||taxa.length} taxa · ORDER-FIRST ${payload.meta.orderFirstCount||0} ordes · wereld open ${openPct.toFixed(1)}% · slechtste lokaal open ${(100-worstPct).toFixed(1)}% (${payload.meta.worstChildTaxon||'—'} → ${payload.meta.worstChildRank||'—'})`;
 }
-console.log('Atlas v77 · ruimtelijke waarnemingslaag',payload.meta.worldLandFraction);
+console.log('Atlas v78 · ruimtelijke waarnemingslaag',payload.meta.worldLandFraction);
 home();requestAnimationFrame(anim);
 }catch(err){
   console.error(err);
