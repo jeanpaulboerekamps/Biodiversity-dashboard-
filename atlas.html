@@ -3,7 +3,7 @@
 <base href="https://jeanpaulboerekamps.github.io/Atlas-of-life/">
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no">
-<title>Atlas of Life — v81 continue waarnemingslaag</title>
+<title>Atlas of Life — v82 doorlopende soortzoekers</title>
 <style>
 :root{--sea:#1e9fd0;--ink:#17372f;--panel:#fffdf9f5;--muted:#60776e}
 *{box-sizing:border-box}
@@ -95,7 +95,7 @@ html.lightweight .card{backdrop-filter:none!important}
 </svg>
 <canvas id="personalDensity" aria-hidden="true"></canvas>
 <div class="top">
-  <div class="card brand"><b>Atlas of Life</b><small>v81 · continue waarnemingslaag</small></div>
+  <div class="card brand"><b>Atlas of Life</b><small>v82 · doorlopende soortzoekers</small></div>
   <div class="card search"><input id="search" placeholder="Zoek taxon…" autocomplete="off"></div>
   <div class="card controls"><button id="home">Wereld</button></div>
 </div>
@@ -1642,13 +1642,22 @@ function rebuildPersonalSpatialIndex(){
   personalSpatialIndex=next;
 }
 function visiblePersonalPoints(){
-  const out=[];
+  const out=[],seen=new Set();
   const x0=Math.floor(view.x/PERSONAL_INDEX_CELL),x1=Math.floor((view.x+view.w)/PERSONAL_INDEX_CELL);
   const y0=Math.floor(view.y/PERSONAL_INDEX_CELL),y1=Math.floor((view.y+view.h)/PERSONAL_INDEX_CELL);
   for(let iy=y0;iy<=y1;iy++)for(let ix=x0;ix<=x1;ix++){
     for(const p of personalSpatialIndex.get(ix+','+iy)||[]){
-      if(p.x>=view.x&&p.x<=view.x+view.w&&p.y>=view.y&&p.y<=view.y+view.h)out.push(p);
+      if(p.x>=view.x&&p.x<=view.x+view.w&&p.y>=view.y&&p.y<=view.y+view.h){
+        out.push(p);seen.add(p);
+      }
     }
+  }
+  /* Lazy layout can move a species away from its exported coordinate. Include
+     live centres separately so a marker cannot disappear while zooming in. */
+  for(const p of personalCoordinates){
+    if(seen.has(p))continue;
+    const species=liveSpeciesByName.get(p.n),c=species?.center;
+    if(c&&c.x>=view.x&&c.x<=view.x+view.w&&c.y>=view.y&&c.y<=view.y+view.h)out.push(p);
   }
   return out;
 }
@@ -1713,6 +1722,18 @@ function drawPersonalOverlay(z,ts=0){
         personalCtx.beginPath();personalCtx.arc(sx,sy,radius+3,0,Math.PI*2);personalCtx.stroke();
         continue;
       }
+      if(speciesRadiusPx<15){
+        /* Keep an exact-centre locator around tiny live species beads. It only
+           fades once the filled blue bead is independently easy to spot. */
+        const fade=Math.max(0,Math.min(1,(speciesRadiusPx-6)/9));
+        personalCtx.globalAlpha=.82*(1-fade);
+        personalCtx.strokeStyle='#087fd1';
+        personalCtx.lineWidth=2.5;
+        personalCtx.beginPath();
+        personalCtx.arc(sx,sy,Math.max(9,radius+4),0,Math.PI*2);
+        personalCtx.stroke();
+      }
+      personalCtx.globalAlpha=.62+.38*pointMix;
       personalCtx.beginPath();personalCtx.arc(sx,sy,radius,0,Math.PI*2);
       personalCtx.fill();
       if(speciesRadiusPx>2.2){
@@ -2736,14 +2757,23 @@ function refreshPersonalColors(){
     if(detailRank(o.t)==='SPECIES')o.text.setAttribute('class',speciesLabelClass(o.t));
   }
 }
+let personalResultTimer=null;
 function publishPersonalResult(type,matched,total){
-  const label=`${matched} van ${total} waargenomen soorten verwerkt`;
+  const missing=Math.max(0,total-matched);
+  const label=missing
+    ? `${matched} soorten op de kaart · ${missing} zonder atlaspositie`
+    : `${matched} soorten op de kaart`;
   personalLegend.style.display='block';
   personalLegend.querySelector('span:last-child').textContent=label;
+  if(personalResultTimer)clearTimeout(personalResultTimer);
+  personalResultTimer=setTimeout(()=>{
+    personalLegend.style.display='none';personalResultTimer=null;
+  },6500);
   window.parent.postMessage({type,matched,total},'*');
 }
 let pointFamilyIndexPromise=null;
 async function loadPersonalCoordinates(records){
+  if(personalResultTimer){clearTimeout(personalResultTimer);personalResultTimer=null}
   const wanted=new Set(records.map(r=>norm(r?.SPECIES)).filter(Boolean));
   if(!wanted.size){
     personalCoordinates=[];rebuildPersonalSpatialIndex();personalCoordinateVersion++;lastOverlayKey='';
@@ -3073,9 +3103,9 @@ function anim(ts){
   const landPct=Math.max(0,Math.min(100,100*(payload.meta.worldLandFraction||0)));
   const openPct=100-landPct;
   const worstPct=100*(payload.meta.worstChildLandFraction||0);
-  status.textContent=`v81 · ${payload.meta.taxa||taxa.length} taxa · ORDER-FIRST ${payload.meta.orderFirstCount||0} ordes · wereld open ${openPct.toFixed(1)}% · slechtste lokaal open ${(100-worstPct).toFixed(1)}% (${payload.meta.worstChildTaxon||'—'} → ${payload.meta.worstChildRank||'—'})`;
+  status.textContent=`v82 · ${payload.meta.taxa||taxa.length} taxa · ORDER-FIRST ${payload.meta.orderFirstCount||0} ordes · wereld open ${openPct.toFixed(1)}% · slechtste lokaal open ${(100-worstPct).toFixed(1)}% (${payload.meta.worstChildTaxon||'—'} → ${payload.meta.worstChildRank||'—'})`;
 }
-console.log('Atlas v81 · continue waarnemingslaag',payload.meta.worldLandFraction);
+console.log('Atlas v82 · doorlopende soortzoekers',payload.meta.worldLandFraction);
 home();requestAnimationFrame(anim);
 }catch(err){
   console.error(err);
