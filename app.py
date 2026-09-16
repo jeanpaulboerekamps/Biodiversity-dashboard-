@@ -2,6 +2,7 @@ from datetime import date, timedelta
 import json
 import html
 import logging
+from pathlib import Path
 import sys
 import time
 
@@ -84,7 +85,7 @@ if "show_help" not in st.session_state:
 if "show_privacy" not in st.session_state:
     st.session_state.show_privacy = False
 
-st.markdown('<span class="release-badge">Versie 1.4</span>', unsafe_allow_html=True)
+st.markdown('<span class="release-badge">Versie 1.5</span>', unsafe_allow_html=True)
 st.title("🌿 Mijn Biodiversiteit")
 st.caption("Ontdek de natuur om je heen — met openbare waarnemingen van iNaturalist en optioneel Waarneming.nl.")
 
@@ -828,7 +829,7 @@ def pie_chart(data, names, values, title):
 
 
 def render_personal_atlas(df):
-    """Embed Atlas and send compact taxonomic lineages, without client-side matching."""
+    """Render the bundled Atlas with a prefiltered personal taxonomy layer."""
     source = "species_scientific" if "species_scientific" in df.columns else "wetenschappelijke naam"
     rank_columns = {
         "KINGDOM": "kingdom_scientific",
@@ -855,56 +856,24 @@ def render_personal_atlas(df):
         st.info("Er zijn nog geen wetenschappelijke soortnamen voor de Atlas beschikbaar.")
         return
 
-    atlas_url = "https://jeanpaulboerekamps.github.io/Atlas-of-life/"
-    if not atlas_url.endswith("/"):
-        atlas_url += "/"
-
     payload = json.dumps(taxonomy_records, ensure_ascii=False).replace("</", "<\\/")
-    safe_url = html.escape(atlas_url, quote=True)
-    component = f"""
-    <style>
-      html,body{{margin:0;height:100%;overflow:hidden;background:#1688bd}}
-      #wrap{{position:relative;width:100%;height:790px}}
-      #atlas{{display:block;width:100%;height:790px;border:0;border-radius:16px}}
-      #atlas-status{{position:absolute;z-index:5;right:12px;top:12px;max-width:70%;
-        padding:9px 13px;border-radius:999px;background:rgba(255,255,255,.94);
-        color:#16415c;font:600 13px/1.2 system-ui,-apple-system,sans-serif;
-        box-shadow:0 2px 12px rgba(0,0,0,.18);pointer-events:none}}
-      #atlas-status.ready{{background:#087fd1;color:white}}
-      #atlas-status.empty{{background:#fff3cd;color:#654d03}}
-    </style>
-    <div id="wrap">
-      <iframe id="atlas" src="{safe_url}" title="Mijn waarnemingen in Atlas of Life"
-        allow="fullscreen"></iframe>
-      <div id="atlas-status">Atlas laden…</div>
-    </div>
-    <script>
-      const atlas=document.getElementById('atlas');
-      const status=document.getElementById('atlas-status');
-      const message={{type:'atlas-observations',taxonomyRecords:{payload}}};
-      let sent=false,fallback=null;
-      const send=()=>{{
-        if(sent)return;
-        sent=true;
-        status.textContent=`${{message.taxonomyRecords.length}} soorten verwerken…`;
-        atlas.contentWindow.postMessage(message,'*');
-      }};
-      /* atlas-ready is the reliable handshake. The delayed fallback supports
-         an older cached Atlas without sending the same large list twice. */
-      atlas.addEventListener('load',()=>{{fallback=setTimeout(send,2500)}});
-      window.addEventListener('message',event=>{{
-        const data=event.data||{{}};
-        if(data.type==='atlas-ready'){{clearTimeout(fallback);send()}}
-        if(data.type==='atlas-observations-progress'){{
-          status.textContent=`${{data.matched}} van ${{data.total}} soorten verwerkt…`;
-        }}
-        if(data.type==='atlas-observations-applied'){{
-          status.textContent=`${{data.matched}} van ${{data.total}} soorten verwerkt`;
-          status.className=data.matched?'ready':'empty';
-        }}
-      }});
-    </script>
-    """
+    atlas_path = Path(__file__).with_name("atlas.html")
+    try:
+        component = atlas_path.read_text(encoding="utf-8")
+    except OSError as exc:
+        log.exception("ATLAS_TEMPLATE_ERROR %s", exc)
+        st.error("De Atlas-template ontbreekt. Plaats atlas.html naast app.py.")
+        return
+
+    bootstrap = (
+        "window.parent.postMessage({type:'atlas-ready'},'*');"
+        f"applyPersonalTaxonomy({payload});"
+    )
+    component = component.replace(
+        "window.parent.postMessage({type:'atlas-ready'},'*');",
+        bootstrap,
+        1,
+    )
     components.html(component, height=810, scrolling=False)
     st.caption(
         f"{len(taxonomy_records)} unieke waargenomen soorten aangeboden aan de Atlas. "
