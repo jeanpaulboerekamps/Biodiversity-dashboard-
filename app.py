@@ -839,11 +839,7 @@ def render_personal_atlas(df):
         st.info("Er zijn nog geen wetenschappelijke soortnamen voor de Atlas beschikbaar.")
         return
 
-    try:
-        atlas_url = str(st.secrets.get("ATLAS_OF_LIFE_URL", "")).strip()
-    except Exception:
-        atlas_url = ""
-    atlas_url = atlas_url or "https://jeanpaulboerekamps.github.io/"
+    atlas_url = "https://jeanpaulboerekamps.github.io/Atlas-of-life/"
     if not atlas_url.endswith("/"):
         atlas_url += "/"
 
