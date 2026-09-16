@@ -84,7 +84,7 @@ if "show_help" not in st.session_state:
 if "show_privacy" not in st.session_state:
     st.session_state.show_privacy = False
 
-st.markdown('<span class="release-badge">Versie 1.3</span>', unsafe_allow_html=True)
+st.markdown('<span class="release-badge">Versie 1.3.1</span>', unsafe_allow_html=True)
 st.title("🌿 Mijn Biodiversiteit")
 st.caption("Ontdek de natuur om je heen — met openbare waarnemingen van iNaturalist en optioneel Waarneming.nl.")
 
@@ -848,17 +848,44 @@ def render_personal_atlas(df):
     component = f"""
     <style>
       html,body{{margin:0;height:100%;overflow:hidden;background:#1688bd}}
+      #wrap{{position:relative;width:100%;height:790px}}
       #atlas{{display:block;width:100%;height:790px;border:0;border-radius:16px}}
+      #atlas-status{{position:absolute;z-index:5;right:12px;top:12px;max-width:70%;
+        padding:9px 13px;border-radius:999px;background:rgba(255,255,255,.94);
+        color:#16415c;font:600 13px/1.2 system-ui,-apple-system,sans-serif;
+        box-shadow:0 2px 12px rgba(0,0,0,.18);pointer-events:none}}
+      #atlas-status.ready{{background:#087fd1;color:white}}
+      #atlas-status.empty{{background:#fff3cd;color:#654d03}}
     </style>
-    <iframe id="atlas" src="{safe_url}" title="Mijn waarnemingen in Atlas of Life"
-      allow="fullscreen"></iframe>
+    <div id="wrap">
+      <iframe id="atlas" src="{safe_url}" title="Mijn waarnemingen in Atlas of Life"
+        allow="fullscreen"></iframe>
+      <div id="atlas-status">Atlas laden…</div>
+    </div>
     <script>
       const atlas=document.getElementById('atlas');
+      const status=document.getElementById('atlas-status');
       const message={{type:'atlas-observations',speciesNames:{payload}}};
-      const send=()=>atlas.contentWindow.postMessage(message,'*');
-      atlas.addEventListener('load',()=>setTimeout(send,250));
+      let sent=false,fallback=null;
+      const send=()=>{{
+        if(sent)return;
+        sent=true;
+        status.textContent=`0 van ${{message.speciesNames.length}} soorten gekoppeld…`;
+        atlas.contentWindow.postMessage(message,'*');
+      }};
+      /* atlas-ready is the reliable handshake. The delayed fallback supports
+         an older cached Atlas without sending the same large list twice. */
+      atlas.addEventListener('load',()=>{{fallback=setTimeout(send,2500)}});
       window.addEventListener('message',event=>{{
-        if(event.data && event.data.type==='atlas-ready')send();
+        const data=event.data||{{}};
+        if(data.type==='atlas-ready'){{clearTimeout(fallback);send()}}
+        if(data.type==='atlas-observations-progress'){{
+          status.textContent=`${{data.matched}} van ${{data.total}} soorten gekoppeld…`;
+        }}
+        if(data.type==='atlas-observations-applied'){{
+          status.textContent=`${{data.matched}} van ${{data.total}} soorten blauw gekoppeld`;
+          status.className=data.matched?'ready':'empty';
+        }}
       }});
     </script>
     """
