@@ -84,7 +84,7 @@ if "show_help" not in st.session_state:
 if "show_privacy" not in st.session_state:
     st.session_state.show_privacy = False
 
-st.markdown('<span class="release-badge">Versie 1.3.1</span>', unsafe_allow_html=True)
+st.markdown('<span class="release-badge">Versie 1.4</span>', unsafe_allow_html=True)
 st.title("🌿 Mijn Biodiversiteit")
 st.caption("Ontdek de natuur om je heen — met openbare waarnemingen van iNaturalist en optioneel Waarneming.nl.")
 
@@ -828,14 +828,30 @@ def pie_chart(data, names, values, title):
 
 
 def render_personal_atlas(df):
-    """Embed Atlas of Life and send unique observed scientific species names."""
+    """Embed Atlas and send compact taxonomic lineages, without client-side matching."""
     source = "species_scientific" if "species_scientific" in df.columns else "wetenschappelijke naam"
-    species_names = sorted({
-        str(value).strip()
-        for value in df[source].dropna().tolist()
-        if str(value).strip()
-    })
-    if not species_names:
+    rank_columns = {
+        "KINGDOM": "kingdom_scientific",
+        "PHYLUM": "phylum_scientific",
+        "CLASS": "class_scientific",
+        "ORDER": "orde_wetenschappelijk",
+        "FAMILY": "family_scientific",
+        "GENUS": "genus_scientific",
+        "SPECIES": source,
+    }
+    records_by_species = {}
+    for _, row in df.iterrows():
+        species = str(row.get(source) or "").strip()
+        if not species or species.lower() == "nan":
+            continue
+        record = {}
+        for rank, column in rank_columns.items():
+            value = str(row.get(column) or "").strip()
+            if value and value.lower() != "nan":
+                record[rank] = value
+        records_by_species.setdefault(species.casefold(), record)
+    taxonomy_records = [records_by_species[key] for key in sorted(records_by_species)]
+    if not taxonomy_records:
         st.info("Er zijn nog geen wetenschappelijke soortnamen voor de Atlas beschikbaar.")
         return
 
@@ -843,7 +859,7 @@ def render_personal_atlas(df):
     if not atlas_url.endswith("/"):
         atlas_url += "/"
 
-    payload = json.dumps(species_names, ensure_ascii=False).replace("</", "<\\/")
+    payload = json.dumps(taxonomy_records, ensure_ascii=False).replace("</", "<\\/")
     safe_url = html.escape(atlas_url, quote=True)
     component = f"""
     <style>
@@ -865,12 +881,12 @@ def render_personal_atlas(df):
     <script>
       const atlas=document.getElementById('atlas');
       const status=document.getElementById('atlas-status');
-      const message={{type:'atlas-observations',speciesNames:{payload}}};
+      const message={{type:'atlas-observations',taxonomyRecords:{payload}}};
       let sent=false,fallback=null;
       const send=()=>{{
         if(sent)return;
         sent=true;
-        status.textContent=`0 van ${{message.speciesNames.length}} soorten gekoppeld…`;
+        status.textContent=`${{message.taxonomyRecords.length}} soorten verwerken…`;
         atlas.contentWindow.postMessage(message,'*');
       }};
       /* atlas-ready is the reliable handshake. The delayed fallback supports
@@ -880,10 +896,10 @@ def render_personal_atlas(df):
         const data=event.data||{{}};
         if(data.type==='atlas-ready'){{clearTimeout(fallback);send()}}
         if(data.type==='atlas-observations-progress'){{
-          status.textContent=`${{data.matched}} van ${{data.total}} soorten gekoppeld…`;
+          status.textContent=`${{data.matched}} van ${{data.total}} soorten verwerkt…`;
         }}
         if(data.type==='atlas-observations-applied'){{
-          status.textContent=`${{data.matched}} van ${{data.total}} soorten blauw gekoppeld`;
+          status.textContent=`${{data.matched}} van ${{data.total}} soorten verwerkt`;
           status.className=data.matched?'ready':'empty';
         }}
       }});
@@ -891,7 +907,7 @@ def render_personal_atlas(df):
     """
     components.html(component, height=810, scrolling=False)
     st.caption(
-        f"{len(species_names)} unieke waargenomen soorten aangeboden aan de Atlas. "
+        f"{len(taxonomy_records)} unieke waargenomen soorten aangeboden aan de Atlas. "
         "Blauw toont waargenomen soorten; op hogere niveaus geeft intenser blauw meer soorten aan."
     )
 
@@ -1161,6 +1177,26 @@ with tab_dashboard:
                             ),
                             "familie": (
                                 rank_from_ancestors(taxon, taxon_lookup, "family")
+                                if need_taxonomy else None
+                            ),
+                            "family_scientific": (
+                                rank_from_ancestors(taxon, taxon_lookup, "family", scientific=True)
+                                if need_taxonomy else None
+                            ),
+                            "genus_scientific": (
+                                rank_from_ancestors(taxon, taxon_lookup, "genus", scientific=True)
+                                if need_taxonomy else None
+                            ),
+                            "class_scientific": (
+                                rank_from_ancestors(taxon, taxon_lookup, "class", scientific=True)
+                                if need_taxonomy else None
+                            ),
+                            "phylum_scientific": (
+                                rank_from_ancestors(taxon, taxon_lookup, "phylum", scientific=True)
+                                if need_taxonomy else None
+                            ),
+                            "kingdom_scientific": (
+                                rank_from_ancestors(taxon, taxon_lookup, "kingdom", scientific=True)
                                 if need_taxonomy else None
                             ),
                             "lat": lat,
