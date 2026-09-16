@@ -85,7 +85,7 @@ if "show_help" not in st.session_state:
 if "show_privacy" not in st.session_state:
     st.session_state.show_privacy = False
 
-st.markdown('<span class="release-badge">Versie 1.9</span>', unsafe_allow_html=True)
+st.markdown('<span class="release-badge">Versie 2.0</span>', unsafe_allow_html=True)
 st.title("🌿 Mijn Biodiversiteit")
 st.caption("Ontdek de natuur om je heen — met openbare waarnemingen van iNaturalist en optioneel Waarneming.nl.")
 
@@ -829,7 +829,7 @@ def pie_chart(data, names, values, title):
 
 
 def render_personal_atlas(df):
-    """Render the bundled Atlas with a prefiltered personal taxonomy layer."""
+    """Render the fixed Atlas map with a coordinate-based observation layer."""
     source = "species_scientific" if "species_scientific" in df.columns else "wetenschappelijke naam"
     rank_columns = {
         "KINGDOM": "kingdom_scientific",
@@ -877,7 +877,8 @@ def render_personal_atlas(df):
     components.html(component, height=810, scrolling=False)
     st.caption(
         f"{len(taxonomy_records)} unieke waargenomen soorten aangeboden aan de Atlas. "
-        "Blauw toont waargenomen soorten; op hogere niveaus geeft intenser blauw meer soorten aan."
+        "Blauw toont waargenomen soorten. Uitgezoomd worden de vaste soortpunten "
+        "uitsluitend op positie tot ruimtelijke dichtheidsvakken samengevoegd."
     )
 
 
@@ -1254,8 +1255,9 @@ with tab_dashboard:
             if selected_overview == "Mijn waarnemingen in Atlas of Life" and taxonomy_available:
                 st.subheader("Mijn waarnemingen in Atlas of Life")
                 st.caption(
-                    "Blauwe soorten zijn door jou in het gekozen gebied en de gekozen periode "
-                    "waargenomen. De blauwe intensiteit wordt naar boven door de taxonomie opgeteld."
+                    "Blauwe punten zijn soorten die jij in het gekozen gebied en de gekozen periode "
+                    "hebt waargenomen. Uitgezoomd toont een kaartvast raster waar meer of minder "
+                    "van deze soortpunten bij elkaar liggen; taxonomie speelt daarin geen rol."
                 )
                 render_personal_atlas(df)
 
@@ -1713,6 +1715,6 @@ checkpoint("APP_END")
 
 st.divider()
 st.caption(
-    "Mijn Biodiversiteit v1.0 · Gegevens via iNaturalist · "
+    "Mijn Biodiversiteit v2.0 · Gegevens via iNaturalist · "
     "iNaturalist is een externe dienst; beschikbaarheid en gegevens kunnen wijzigen."
 )
