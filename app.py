@@ -1,4 +1,5 @@
 from datetime import date, timedelta
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import json
 import html
 import logging
@@ -335,34 +336,68 @@ with tab_areas:
 def fetch_observations(params_tuple):
     checkpoint("OBS_FETCH_START")
     params = dict(params_tuple)
-    rows = []
-    page = 1
-    total = None
 
-    while True:
+    def fetch_page(page):
         call_params = dict(params)
         call_params.update(page=page, per_page=200)
         checkpoint(f"OBS_FETCH_PAGE page={page}")
-
-        r = requests.get(OBS_API, params=call_params, timeout=(10, 30))
+        for attempt in range(3):
+            r = requests.get(OBS_API, params=call_params, timeout=(10, 30))
+            if r.status_code != 429 and r.status_code < 500:
+                r.raise_for_status()
+                return r.json()
+            time.sleep(0.75 * (2 ** attempt))
         r.raise_for_status()
-        payload = r.json()
 
-        if total is None:
-            total = payload.get("total_results", 0)
-            checkpoint(f"OBS_FETCH_TOTAL total={total}")
+    def compact_observation(observation):
+        """Bewaar alleen velden die de analyse werkelijk gebruikt."""
+        taxon = observation.get("taxon") or {}
+        ancestor_ids = list(taxon.get("ancestor_ids") or [])
+        for ancestor in taxon.get("ancestors") or []:
+            ancestor_id = ancestor.get("id") if isinstance(ancestor, dict) else ancestor
+            if ancestor_id and ancestor_id not in ancestor_ids:
+                ancestor_ids.append(ancestor_id)
+        compact_taxon = {
+            "id": taxon.get("id"),
+            "rank": taxon.get("rank"),
+            "name": taxon.get("name"),
+            "preferred_common_name": taxon.get("preferred_common_name"),
+            "iconic_taxon_name": taxon.get("iconic_taxon_name"),
+            "ancestor_ids": ancestor_ids,
+        }
+        photos = observation.get("photos") or []
+        compact_photos = [{"url": photos[0].get("url")}] if photos else []
+        return {
+            "id": observation.get("id"),
+            "observed_on": observation.get("observed_on"),
+            "geojson": observation.get("geojson"),
+            "taxon": compact_taxon,
+            "photos": compact_photos,
+        }
 
-        batch = payload.get("results", [])
-        rows.extend(batch)
+    first_payload = fetch_page(1)
+    total = int(first_payload.get("total_results", 0) or 0)
+    checkpoint(f"OBS_FETCH_TOTAL total={total}")
+    page_count = min(50, max(1, (min(total, 10000) + 199) // 200))
+    pages = {1: first_payload.get("results", [])}
 
-        if len(batch) < 200 or page * 200 >= min(total, 10000):
-            break
+    # Pagina 1 bepaalt het totaal; de resterende onafhankelijke pagina's mogen
+    # begrensd parallel worden opgehaald. Dit verkort vooral grote eerste runs.
+    if page_count > 1:
+        with ThreadPoolExecutor(max_workers=min(4, page_count - 1)) as executor:
+            futures = {executor.submit(fetch_page, page): page for page in range(2, page_count + 1)}
+            for future in as_completed(futures):
+                page = futures[future]
+                pages[page] = future.result().get("results", [])
 
-        page += 1
-        time.sleep(0.1)
+    rows = [
+        compact_observation(observation)
+        for page in range(1, page_count + 1)
+        for observation in pages.get(page, [])
+    ]
 
     checkpoint(f"OBS_FETCH_DONE fetched={len(rows)}")
-    return rows, total or 0
+    return rows, total
 
 
 
@@ -609,16 +644,14 @@ def fetch_taxa_by_ids(ids_tuple, locale="nl"):
     /v1/taxa/id1,id2-route retourneert wel exact de gevraagde records.
     """
     ids = sorted({int(x) for x in ids_tuple if x})
-    result = {}
-
     # De multi-ID-route levert maximaal een compacte pagina. Kleine batches
     # houden zowel het pad als het antwoord beheersbaar en betrouwbaar.
     chunk_size = 30
+    batches = [ids[start:start + chunk_size] for start in range(0, len(ids), chunk_size)]
 
-    for start in range(0, len(ids), chunk_size):
-        batch = ids[start:start + chunk_size]
+    def fetch_batch(batch_number, batch):
+        start = batch_number * chunk_size
         checkpoint(f"TAXON_QUERY_BATCH start={start} size={len(batch)}")
-
         try:
             url = f"{TAXA_API}/{','.join(str(x) for x in batch)}"
             params = {
@@ -627,17 +660,37 @@ def fetch_taxa_by_ids(ids_tuple, locale="nl"):
             }
             if locale == "nl":
                 params["preferred_place_id"] = 7506
-            r = requests.get(url, params=params, timeout=(10, 45))
+            for attempt in range(3):
+                r = requests.get(url, params=params, timeout=(10, 45))
+                if r.status_code != 429 and r.status_code < 500:
+                    break
+                time.sleep(0.75 * (2 ** attempt))
             r.raise_for_status()
             payload = r.json()
-
+            compact = {}
             for tx in payload.get("results", []):
                 tid = tx.get("id")
                 if tid:
-                    result[int(tid)] = tx
-
+                    compact[int(tid)] = {
+                        "id": int(tid),
+                        "rank": tx.get("rank"),
+                        "name": tx.get("name"),
+                        "preferred_common_name": tx.get("preferred_common_name"),
+                    }
+            return compact
         except Exception as e:
             log.exception("TAXON_QUERY_BATCH_ERROR %s", e)
+            return {}
+
+    result = {}
+    if batches:
+        with ThreadPoolExecutor(max_workers=min(6, len(batches))) as executor:
+            futures = {
+                executor.submit(fetch_batch, index, batch): index
+                for index, batch in enumerate(batches)
+            }
+            for future in as_completed(futures):
+                result.update(future.result())
 
     checkpoint(
         f"TAXON_QUERY_DONE locale={locale} requested={len(ids)} returned={len(result)}"
@@ -1768,7 +1821,7 @@ with tab_dashboard:
             checkpoint("DASHBOARD_RENDER_DONE")
 
 st.caption(
-    "versie 1.2 · Atlas-koppeling v0.30 · vaste overzichtskeuze + Target-instellingen vóór analyse · "
+    "versie 1.2 · Atlas-koppeling v0.31 · vaste overzichtskeuze + Target-instellingen vóór analyse · "
     "geen iNaturalist-analyse vóór je op ‘Analyseer dit gebied’ drukt."
 )
 
