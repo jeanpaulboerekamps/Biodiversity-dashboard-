@@ -3,7 +3,7 @@
 <base href="https://jeanpaulboerekamps.github.io/Atlas-of-life/">
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no">
-<title>Atlas of Life — v73 zoomgestuurde verdieping</title>
+<title>Atlas of Life — v74 volledige soortenketens</title>
 <style>
 :root{--sea:#1e9fd0;--ink:#17372f;--panel:#fffdf9f5;--muted:#60776e}
 *{box-sizing:border-box}
@@ -90,7 +90,7 @@ svg.fastInteraction .latin{display:none!important}
 <g id="halos"></g><g id="regions"></g><g id="genusOverlays"></g><g id="labels"></g>
 </svg>
 <div class="top">
-  <div class="card brand"><b>Atlas of Life</b><small>v73 · zoomgestuurde verdieping</small></div>
+  <div class="card brand"><b>Atlas of Life</b><small>v74 · volledige soortenketens</small></div>
   <div class="card search"><input id="search" placeholder="Zoek taxon…" autocomplete="off"></div>
   <div class="card controls"><button id="home">Wereld</button></div>
 </div>
@@ -2125,7 +2125,7 @@ function layoutLazyChildren(parent){
   /* v59: once a family species shard is loaded, do not allocate/render a
      genus for which that shard contains no species. This prevents empty genus
      boxes caused by incomplete/mismatched detail rows. */
-  if(detailRank(parent)==='FAMILY' && loadedFamilies.has(String(parent.id))){
+  if(!personalMode && detailRank(parent)==='FAMILY' && loadedFamilies.has(String(parent.id))){
     cs=cs.filter(c=>detailRank(c)!=='GENUS' ||
       (children.get(String(c.id))||[]).some(x=>detailRank(x)==='SPECIES'));
   }
@@ -2295,11 +2295,22 @@ async function ensureFamilySpecies(familyOrId){
       }
       const payload=await r.json();
       const added=[];
+      const observedGenusNames=new Set(
+        (children.get(id)||[])
+          .filter(t=>detailRank(t)==='GENUS')
+          .map(t=>norm(t.canonicalName||t.name))
+      );
+      const observedGenusIds=new Set(
+        (children.get(id)||[])
+          .filter(t=>detailRank(t)==='GENUS')
+          .map(t=>String(t.id))
+      );
       const speciesRows=(payload.taxa||[]).filter(raw=>{
         if(!personalMode)return true;
-        const rank=String(raw.rank||'').toUpperCase();
-        const name=norm(raw.canonicalName||raw.name);
-        return rank==='SPECIES'&&(personalRankNameCounts.get(`SPECIES|${name}`)||0)>0;
+        if(String(raw.rank||'').toUpperCase()!=='SPECIES')return false;
+        if(observedGenusIds.has(String(raw.parentId)))return true;
+        const binomial=String(raw.canonicalName||raw.name||'').trim().split(/\s+/);
+        return observedGenusNames.has(norm(binomial[0]||''));
       });
       for(const raw of speciesRows){
         const before=byId.has(String(raw.id));
@@ -2809,9 +2820,9 @@ function anim(ts){
   const landPct=Math.max(0,Math.min(100,100*(payload.meta.worldLandFraction||0)));
   const openPct=100-landPct;
   const worstPct=100*(payload.meta.worstChildLandFraction||0);
-  status.textContent=`v73 · ${payload.meta.taxa||taxa.length} taxa · ORDER-FIRST ${payload.meta.orderFirstCount||0} ordes · wereld open ${openPct.toFixed(1)}% · slechtste lokaal open ${(100-worstPct).toFixed(1)}% (${payload.meta.worstChildTaxon||'—'} → ${payload.meta.worstChildRank||'—'})`;
+  status.textContent=`v74 · ${payload.meta.taxa||taxa.length} taxa · ORDER-FIRST ${payload.meta.orderFirstCount||0} ordes · wereld open ${openPct.toFixed(1)}% · slechtste lokaal open ${(100-worstPct).toFixed(1)}% (${payload.meta.worstChildTaxon||'—'} → ${payload.meta.worstChildRank||'—'})`;
 }
-console.log('Atlas v73 · zoomgestuurde verdieping',payload.meta.worldLandFraction);
+console.log('Atlas v74 · volledige soortenketens',payload.meta.worldLandFraction);
 home();requestAnimationFrame(anim);
 }catch(err){
   console.error(err);
