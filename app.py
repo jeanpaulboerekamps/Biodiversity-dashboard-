@@ -843,7 +843,7 @@ def render_personal_atlas(df):
         atlas_url = str(st.secrets.get("ATLAS_OF_LIFE_URL", "")).strip()
     except Exception:
         atlas_url = ""
-    atlas_url = atlas_url or "https://jeanpaulboerekamps.github.io/Atlas-of-life-main/"
+    atlas_url = atlas_url or "https://jeanpaulboerekamps.github.io/"
     if not atlas_url.endswith("/"):
         atlas_url += "/"
 
