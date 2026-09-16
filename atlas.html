@@ -3,7 +3,7 @@
 <base href="https://jeanpaulboerekamps.github.io/Atlas-of-life/">
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no">
-<title>Atlas of Life — v72 snelle persoonlijke verdieping</title>
+<title>Atlas of Life — v73 zoomgestuurde verdieping</title>
 <style>
 :root{--sea:#1e9fd0;--ink:#17372f;--panel:#fffdf9f5;--muted:#60776e}
 *{box-sizing:border-box}
@@ -90,7 +90,7 @@ svg.fastInteraction .latin{display:none!important}
 <g id="halos"></g><g id="regions"></g><g id="genusOverlays"></g><g id="labels"></g>
 </svg>
 <div class="top">
-  <div class="card brand"><b>Atlas of Life</b><small>v72 · snelle persoonlijke verdieping</small></div>
+  <div class="card brand"><b>Atlas of Life</b><small>v73 · zoomgestuurde verdieping</small></div>
   <div class="card search"><input id="search" placeholder="Zoek taxon…" autocomplete="off"></div>
   <div class="card controls"><button id="home">Wereld</button></div>
 </div>
@@ -1597,7 +1597,7 @@ function displayFill(t){
   const seen=personalSeenCounts.get(id)||personalRankNameCounts.get(personalNameKey(t))||0;
   if(personalMode&&seen>0&&isRelatedToPersonalFocus(t)){
     const strength=.30+.60*Math.sqrt(seen/Math.max(1,personalMaxSeen));
-    return mixHex(fillFor(t),'#087fd1',Math.min(.90,strength));
+    return mixHex(colorFor(t),'#087fd1',Math.min(.90,strength));
   }
   return rank==='SPECIES'?speciesBeadFill(t):fillFor(t);
 }
@@ -2451,6 +2451,7 @@ function materialiseVisibleSpecies(z){
 /* Load details automatically only when the screen area is large enough.
    This preserves the v40/v41 performance improvements. */
 let detailAutoLoadBusy=false;
+const detailAttempts=new Map();
 async function maybeLoadVisibleDetails(z,ordersOnly=false){
   if(detailAutoLoadBusy)return;
 
@@ -2459,6 +2460,7 @@ async function maybeLoadVisibleDetails(z,ordersOnly=false){
 
   for(const o of elems){
     if(o.p.style.display==='none')continue;
+    if(Date.now()-(detailAttempts.get(String(o.t.id))||0)<30000)continue;
     if(personalMode&&personalFocus&&!isRelatedToPersonalFocus(o.t))continue;
     const r=detailRank(o.t);
     const sw=(o.t.box?.w||0)*z;
@@ -2478,12 +2480,14 @@ async function maybeLoadVisibleDetails(z,ordersOnly=false){
   }
 
   if(!candidate)return;
+  detailAttempts.set(String(candidate.t.id),Date.now());
   detailAutoLoadBusy=true;
   try{
     if(candidate.kind==='order')await ensureOrderDetails(candidate.t);
     else await ensureFamilySpecies(candidate.t);
   }finally{
     detailAutoLoadBusy=false;
+    lastSemantic=-1;
   }
 }
 
@@ -2617,6 +2621,12 @@ function intersectsView(box,r,margin=.16){
 
 /* Paths through ORDER remain geographic context. Labels still phase in
    semantically, while offscreen geometry is culled for performance. */
+function hasVisibleDetail(t,z){
+  return (children.get(String(t.id))||[]).some(child=>{
+    const rendered=renderedById.get(String(child.id));
+    return rendered&&z>=+rendered.p.dataset.minz&&intersectsView(child.box,view);
+  });
+}
 function semantic(z,force=false){
   if(!force&&Math.abs(z-lastSemantic)<.08)return;
   lastSemantic=z;
@@ -2630,10 +2640,7 @@ function semantic(z,force=false){
     /* v71: heat colour belongs to the deepest unresolved level. Once children
        are available, restore the parent's normal colour so the new layer is
        not visually buried below one large blue polygon. */
-    const childrenResolved=
-      (rr==='ORDER'&&loadedOrders.has(String(o.t.id)))||
-      (rr==='FAMILY'&&loadedFamilies.has(String(o.t.id)))||
-      (rr==='GENUS'&&generaWithVisibleSpecies.has(String(o.t.id)));
+    const childrenResolved=hasVisibleDetail(o.t,z);
     if(childrenResolved)
       o.p.setAttribute('fill',fillFor(o.t));
     else
@@ -2666,8 +2673,8 @@ function semantic(z,force=false){
   }
 
   /* Never block the render loop on network I/O. */
-  if(z>=2.5)queueMicrotask(()=>maybeLoadVisibleDetails(z,personalMode));
-  if(!personalMode&&z>=SPECIES_MATERIALISE_Z)queueMicrotask(()=>{
+  if(!interactionActive&&z>=2.5)queueMicrotask(()=>maybeLoadVisibleDetails(z,false));
+  if(!interactionActive&&z>=SPECIES_MATERIALISE_Z)queueMicrotask(()=>{
     const made=materialiseVisibleSpecies(z);
     if(made)requestAnimationFrame(()=>semantic(z,true));
   });
@@ -2678,6 +2685,8 @@ let interactionActive=false,interactionTimer=null,lastFastCull=0;
 
 function beginInteraction(){
   interactionActive=true;
+  // Manual navigation follows the viewport, not the last clicked branch.
+  personalFocus=null;
   svg.classList.add('fastInteraction');
   if(interactionTimer){clearTimeout(interactionTimer);interactionTimer=null}
 }
@@ -2800,9 +2809,9 @@ function anim(ts){
   const landPct=Math.max(0,Math.min(100,100*(payload.meta.worldLandFraction||0)));
   const openPct=100-landPct;
   const worstPct=100*(payload.meta.worstChildLandFraction||0);
-  status.textContent=`v72 · ${payload.meta.taxa||taxa.length} taxa · ORDER-FIRST ${payload.meta.orderFirstCount||0} ordes · wereld open ${openPct.toFixed(1)}% · slechtste lokaal open ${(100-worstPct).toFixed(1)}% (${payload.meta.worstChildTaxon||'—'} → ${payload.meta.worstChildRank||'—'})`;
+  status.textContent=`v73 · ${payload.meta.taxa||taxa.length} taxa · ORDER-FIRST ${payload.meta.orderFirstCount||0} ordes · wereld open ${openPct.toFixed(1)}% · slechtste lokaal open ${(100-worstPct).toFixed(1)}% (${payload.meta.worstChildTaxon||'—'} → ${payload.meta.worstChildRank||'—'})`;
 }
-console.log('Atlas v72 · snelle persoonlijke verdieping',payload.meta.worldLandFraction);
+console.log('Atlas v73 · zoomgestuurde verdieping',payload.meta.worldLandFraction);
 home();requestAnimationFrame(anim);
 }catch(err){
   console.error(err);
