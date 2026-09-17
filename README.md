@@ -1,8 +1,17 @@
-# Mijn Biodiversiteit — publieksversie v0.34
+# Mijn Biodiversiteit — publieksversie v0.35
 
 Publieksvriendelijke versie.
 
-## Nieuw in v0.34
+## Nieuw in v0.35
+
+- Uitleg en privacy staan onderaan en verstoren de primaire werklijn niet meer.
+- De gebiedskiezer toont alleen **Kies gebied**; de drag-and-drop-uitleg is verborgen.
+- Een gebiedsnaam wordt bij één geopend gebied nog maar eenmaal getoond.
+- De overbodige koppen **Gebied** en **Wat wil je ontdekken?** zijn verwijderd.
+- De waarnemingskeuze staat compact links; gebruikersnaam, periode en kwaliteit staan rechts.
+- De browser opent de eigen bestandskiezer en onthoudt doorgaans de laatst gebruikte map.
+
+## Eerder toegevoegd in v0.34
 
 - Eén doorlopende pagina zonder aparte stappen of tabbladen.
 - Een bewaard GeoJSON-gebied kies je direct bovenaan.
@@ -72,4 +81,4 @@ Zet de Streamlit-app op public en deel de vaste `*.streamlit.app` URL.
 
 ### GitHub
 Vervang bij deze versie minimaal `app.py` (of upload de volledige projectinhoud).
-Na installatie staat onderaan zichtbaar `Publieksversie 2.3 · Atlas-koppeling v0.34`.
+Na installatie staat onderaan zichtbaar `Publieksversie 2.4 · Atlas-koppeling v0.35`.

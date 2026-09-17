@@ -74,6 +74,15 @@ h1 {font-size: clamp(1.8rem, 5vw, 2.8rem);}
     padding:.7rem .9rem; border-radius:14px; background:rgba(33,150,243,.08);
     border-left:4px solid #2196f3; margin:.2rem 0 .8rem 0;
 }
+[data-testid="stFileUploaderDropzone"] {
+    padding:.15rem 0; border:0; background:transparent;
+}
+[data-testid="stFileUploaderDropzoneInstructions"] {display:none;}
+[data-testid="stFileUploaderDropzone"] button {font-size:0; min-height:48px;}
+[data-testid="stFileUploaderDropzone"] button::after {
+    content:"Kies gebied"; font-size:1rem;
+}
+[data-testid="stFileUploaderFile"] {display:none;}
 @media (max-width: 768px) {
   .block-container {padding-left: .8rem; padding-right: .8rem;}
   .steps-grid {grid-template-columns:1fr;}
@@ -107,40 +116,15 @@ if "show_area_creator" not in st.session_state:
 if "analysis_key" not in st.session_state:
     st.session_state.analysis_key = None
 
-st.markdown('<span class="release-badge">Publieksversie 2.3</span>', unsafe_allow_html=True)
+st.markdown('<span class="release-badge">Publieksversie 2.4</span>', unsafe_allow_html=True)
 st.title("🌿 Mijn Biodiversiteit")
 st.caption("Kies een gebied en ontdek direct welke soorten er leven.")
 
 photo_dir = Path(__file__).with_name("assets")
-top_a, top_b = st.columns(2)
-if top_a.button("ℹ️ Hoe werkt deze app?", key="toggle_help"):
-    st.session_state.show_help = not st.session_state.show_help
-if top_b.button("🔒 Privacy & gegevens", key="toggle_privacy"):
-    st.session_state.show_privacy = not st.session_state.show_privacy
-
-if st.session_state.show_help:
-    st.info(
-        "Open bovenaan een eerder bewaard gebied. Alleen als je een nieuw gebied nodig hebt, "
-        "open je de tekenkaart met ‘Nieuw gebied maken’. Kies daarna wat je wilt ontdekken; "
-        "de analyse begint vanzelf. Voor persoonlijke waarnemingen vul je alleen "
-        "je openbare iNaturalist-gebruikersnaam in; een wachtwoord is nooit nodig. "
-        "De eerste grote analyse kan wat langer duren, volgende identieke analyses gebruiken de cache."
-    )
-
-if st.session_state.show_privacy:
-    st.info(
-        "De app gebruikt openbare gegevens van iNaturalist. Voor persoonlijke overzichten "
-        "wordt alleen de door jou ingevulde openbare iNaturalist-gebruikersnaam gebruikt. "
-        "De app vraagt niet om je iNaturalist-wachtwoord. Gebieden die je downloadt worden "
-        "als GeoJSON-bestand door jou zelf bewaard. Je browser onthoudt doorgaans de laatst "
-        "gebruikte map, maar de app kan uit veiligheidsoverwegingen geen map afdwingen."
-    )
-
-st.markdown("### Gebied")
 area_pick, area_new = st.columns([3, 1])
 with area_pick:
     uploaded_areas = st.file_uploader(
-        "📂 Selecteer gebied",
+        "Selecteer gebied",
         type=["geojson", "json"],
         accept_multiple_files=False,
         help="De bestandskiezer opent meestal in de map die je de vorige keer gebruikte.",
@@ -188,19 +172,19 @@ if uploaded_areas is not None:
 if st.session_state.areas:
     names = list(st.session_state.areas)
     current = st.session_state.active_area if st.session_state.active_area in names else names[0]
-    chosen = st.selectbox("Geopende gebieden", names, index=names.index(current), key="saved_area_selector_v34")
-    if chosen != st.session_state.active_area:
-        st.session_state.active_area = chosen
-        st.session_state.analysis_df = None
-        st.session_state.analysis_meta = {}
-        st.session_state.analysis_key = None
-        st.rerun()
-
-if st.session_state.active_area:
-    st.markdown(
-        f'<div class="active-area"><b>Actief gebied:</b> {html.escape(st.session_state.active_area)}</div>',
-        unsafe_allow_html=True,
-    )
+    if len(names) > 1:
+        chosen = st.selectbox("Actief gebied", names, index=names.index(current), key="saved_area_selector_v35")
+        if chosen != st.session_state.active_area:
+            st.session_state.active_area = chosen
+            st.session_state.analysis_df = None
+            st.session_state.analysis_meta = {}
+            st.session_state.analysis_key = None
+            st.rerun()
+    elif st.session_state.active_area:
+        st.markdown(
+            f'<div class="active-area"><b>Actief gebied:</b> {html.escape(st.session_state.active_area)}</div>',
+            unsafe_allow_html=True,
+        )
 
 if st.session_state.show_area_creator:
     with st.container(border=True):
@@ -945,51 +929,55 @@ with tab_dashboard:
     if not active or active not in st.session_state.areas:
         st.info("Selecteer hierboven een bewaard gebied, of maak een nieuw gebied.")
     else:
-        st.markdown(
-            f'<div class="active-area"><b>Gekozen gebied:</b> {html.escape(active)}</div>',
-            unsafe_allow_html=True,
-        )
-        st.subheader("Wat wil je ontdekken?")
+        with st.container(border=True):
+            source_col, filter_col = st.columns([1, 2])
+            with source_col:
+                st.markdown("**Waarnemingen**")
+                mode = st.radio(
+                    "Kies bron",
+                    ["Alleen mijn waarnemingen", "Alle waarnemingen"],
+                    index=0,
+                    label_visibility="collapsed",
+                    key="observation_scope_v35",
+                )
+            with filter_col:
+                username = ""
+                if mode == "Alleen mijn waarnemingen":
+                    username = st.text_input(
+                        "iNaturalist-gebruikersnaam",
+                        value="",
+                        placeholder="Bijvoorbeeld: natuurfan123",
+                        help="We vragen nooit om je iNaturalist-wachtwoord.",
+                    )
 
-        with st.expander("1 · Waarnemingen kiezen", expanded=True):
-            mode = st.segmented_control(
-                "Van wie wil je waarnemingen bekijken?",
-                ["Mijn waarnemingen", "Alle waarnemers"],
-                default="Mijn waarnemingen",
-            )
-            username = ""
-            if mode == "Mijn waarnemingen":
-                username = st.text_input(
-                    "Jouw openbare iNaturalist-gebruikersnaam",
-                    value="",
-                    placeholder="Bijvoorbeeld: natuurfan123",
-                    help="We vragen nooit om je iNaturalist-wachtwoord.",
+                start_year, end_year = st.slider(
+                    "Periode",
+                    min_value=2000,
+                    max_value=date.today().year,
+                    value=(2020, date.today().year),
+                    help="Kies het eerste en laatste kalenderjaar van de analyse.",
                 )
 
-            start_year, end_year = st.slider(
-                "Periode",
-                min_value=2000,
-                max_value=date.today().year,
-                value=(2020, date.today().year),
-                help="Kies het eerste en laatste kalenderjaar van de analyse.",
-            )
+                quality_label = st.selectbox(
+                    "Kwaliteit",
+                    [
+                        "Alle kwaliteitsniveaus",
+                        "Onderzoekskwaliteit",
+                        "Heeft nog identificatie nodig",
+                        "Informeel",
+                    ],
+                    help="Kies ‘Alle kwaliteitsniveaus’ voor het breedste overzicht.",
+                )
+                quality = {
+                    "Alle kwaliteitsniveaus": "Alle",
+                    "Onderzoekskwaliteit": "Research grade",
+                    "Heeft nog identificatie nodig": "Needs ID",
+                    "Informeel": "Casual",
+                }[quality_label]
 
-            quality_label = st.selectbox(
-                "Kwaliteit van de waarnemingen",
-                [
-                    "Alle kwaliteitsniveaus",
-                    "Onderzoekskwaliteit",
-                    "Heeft nog identificatie nodig",
-                    "Informeel",
-                ],
-                help="Kies ‘Alle kwaliteitsniveaus’ voor het breedste overzicht.",
-            )
-            quality = {
-                "Alle kwaliteitsniveaus": "Alle",
-                "Onderzoekskwaliteit": "Research grade",
-                "Heeft nog identificatie nodig": "Needs ID",
-                "Informeel": "Casual",
-            }[quality_label]
+        # Intern blijft de bestaande waarde behouden, zodat de analysecode en
+        # eerder geteste uitzonderingen (zoals Target soorten) ongewijzigd werken.
+        mode = "Mijn waarnemingen" if mode == "Alleen mijn waarnemingen" else "Alle waarnemers"
 
         overview_labels = {
             "1 · Wat leeft hier? — Soortgroepen": "Taxonomische samenstelling",
@@ -1826,8 +1814,8 @@ with tab_dashboard:
                         )
 
                 st.caption(
-                    "Wijzig afstand, periode, minimum of bron boven de analyseknop "
-                    "en voer daarna opnieuw de analyse uit."
+                    "Wijzig afstand, periode, minimum of bron hierboven; "
+                    "de analyse wordt daarna automatisch vernieuwd."
                 )
 
             if selected_overview == "Meest waargenomen soorten":
@@ -1853,7 +1841,7 @@ with tab_dashboard:
             checkpoint("DASHBOARD_RENDER_DONE")
 
 st.caption(
-    "Publieksversie 2.3 · Atlas-koppeling v0.34 · analyse start automatisch na je keuze."
+    "Publieksversie 2.4 · Atlas-koppeling v0.35 · analyse start automatisch na je keuze."
 )
 
 checkpoint("APP_END")
@@ -1864,3 +1852,26 @@ st.caption(
     "Mijn Biodiversiteit · Gebaseerd op openbare gegevens van iNaturalist · "
     "Beschikbaarheid, identificaties en soortnamen kunnen in de tijd veranderen."
 )
+
+bottom_a, bottom_b = st.columns(2)
+if bottom_a.button("ℹ️ Hoe werkt deze app?", key="toggle_help_bottom"):
+    st.session_state.show_help = not st.session_state.show_help
+if bottom_b.button("🔒 Privacy & gegevens", key="toggle_privacy_bottom"):
+    st.session_state.show_privacy = not st.session_state.show_privacy
+
+if st.session_state.show_help:
+    st.info(
+        "Kies bovenaan een eerder bewaard gebied. Alleen als je een nieuw gebied nodig hebt, "
+        "open je de tekenkaart met ‘Nieuw gebied maken’. Kies daarna een overzicht; de analyse "
+        "begint vanzelf. Voor persoonlijke waarnemingen vul je alleen je openbare "
+        "iNaturalist-gebruikersnaam in. De eerste grote analyse kan wat langer duren; "
+        "identieke vervolganalyses gebruiken de cache."
+    )
+
+if st.session_state.show_privacy:
+    st.info(
+        "De app gebruikt openbare gegevens van iNaturalist en vraagt nooit om je wachtwoord. "
+        "Gebieden die je downloadt worden als GeoJSON-bestand door jou zelf bewaard. De browser "
+        "onthoudt doorgaans de laatst gebruikte map; een webapp mag geen map op je apparaat "
+        "afdwingen of zonder jouw keuze openen."
+    )
