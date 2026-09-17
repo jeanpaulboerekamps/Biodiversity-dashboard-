@@ -1,8 +1,14 @@
-# Mijn Biodiversiteit — publieksversie v0.36
+# Mijn Biodiversiteit — publieksversie v0.37
 
 Publieksvriendelijke versie.
 
-## Nieuw in v0.36
+## Nieuw in v0.37
+
+- De onbedoelde foto-upload en daarmee de dubbele knop **Kies gebied** zijn verwijderd.
+- De overzichtskeuzes staan weer permanent uitgeklapt in beeld.
+- Meerdere overzichten blijven mogelijk via afzonderlijke selectievakjes.
+
+## Eerder toegevoegd in v0.36
 
 - **Alle waarnemingen** is de standaardkeuze.
 - Er kunnen meerdere overzichten tegelijk worden gekozen en weergegeven.
@@ -90,4 +96,4 @@ Zet de Streamlit-app op public en deel de vaste `*.streamlit.app` URL.
 
 ### GitHub
 Vervang bij deze versie minimaal `app.py` (of upload de volledige projectinhoud).
-Na installatie staat onderaan zichtbaar `Publieksversie 2.5 · Atlas-koppeling v0.36`.
+Na installatie staat onderaan zichtbaar `Publieksversie 2.6 · Atlas-koppeling v0.37`.

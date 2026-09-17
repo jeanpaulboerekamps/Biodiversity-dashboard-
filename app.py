@@ -116,21 +116,9 @@ if "show_area_creator" not in st.session_state:
 if "analysis_key" not in st.session_state:
     st.session_state.analysis_key = None
 
-st.markdown('<span class="release-badge">Publieksversie 2.5</span>', unsafe_allow_html=True)
+st.markdown('<span class="release-badge">Publieksversie 2.6</span>', unsafe_allow_html=True)
 st.title("🌿 Mijn Biodiversiteit")
 st.caption("Kies een gebied en ontdek direct welke soorten er leven.")
-
-own_photos = st.file_uploader(
-    "Eigen foto's toevoegen (optioneel)",
-    type=["jpg", "jpeg", "png", "webp"],
-    accept_multiple_files=True,
-    key="own_photos_v36",
-    help="Deze foto's blijven alleen tijdens de huidige sessie zichtbaar.",
-)
-if own_photos:
-    photo_columns = st.columns(min(3, len(own_photos)))
-    for index, photo in enumerate(own_photos[:6]):
-        photo_columns[index % len(photo_columns)].image(photo, width="stretch")
 
 area_pick, area_new = st.columns([3, 1])
 with area_pick:
@@ -951,14 +939,15 @@ with tab_dashboard:
             "Kansrijke nieuwe soorten": "Target soorten",
             "Mijn soorten in de Atlas of Life": "Mijn waarnemingen in Atlas of Life",
         }
-        overview_selected_labels = st.multiselect(
-            "Overzichten",
-            list(overview_labels),
-            placeholder="Kies een of meer overzichten",
-            help="De analyse begint automatisch na je keuze.",
-            key="overview_choices_public_v36",
-            label_visibility="collapsed",
-        )
+        overview_selected_labels = []
+        overview_columns = st.columns(3)
+        for index, label in enumerate(overview_labels):
+            if overview_columns[index % 3].checkbox(
+                label,
+                value=False,
+                key=f"overview_public_v37_{index}",
+            ):
+                overview_selected_labels.append(label)
         overview_choices = [overview_labels[label] for label in overview_selected_labels]
 
         if any(choice in {
@@ -1803,7 +1792,7 @@ with tab_dashboard:
             checkpoint("DASHBOARD_RENDER_DONE")
 
 st.caption(
-    "Publieksversie 2.5 · Atlas-koppeling v0.36 · meerdere overzichten tegelijk mogelijk."
+    "Publieksversie 2.6 · Atlas-koppeling v0.37 · uitgeklapte meervoudige overzichtskeuze."
 )
 
 checkpoint("APP_END")
