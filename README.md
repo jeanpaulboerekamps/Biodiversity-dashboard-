@@ -1,8 +1,17 @@
-# Mijn Biodiversiteit — publieksversie v0.32
+# Mijn Biodiversiteit — publieksversie v0.33
 
 Publieksvriendelijke versie.
 
-## Nieuw in v0.32
+## Nieuw in v0.33
+
+- het hoofdmenu staat weer volledig uitgeklapt in beeld;
+- alle overzichten zijn logisch gegroepeerd onder dezelfde drie publieksvragen
+  als op de startpagina;
+- Atlas of Life staat als laatste keuze in het menu;
+- drie lokaal meegeleverde natuurfoto's geven de startpagina meer uitstraling;
+- fotografen, bronpagina's en hergebruiklicenties staan zichtbaar in de app;
+
+## Eerder toegevoegd in v0.32
 
 - rustige publieksintroductie met drie duidelijke stappen;
 - genummerde route van gebied kiezen naar biodiversiteit ontdekken;
@@ -54,4 +63,4 @@ Zet de Streamlit-app op public en deel de vaste `*.streamlit.app` URL.
 
 ### GitHub
 Vervang bij deze versie minimaal `app.py` (of upload de volledige projectinhoud).
-Na installatie staat onderaan zichtbaar `Publieksversie 2.1 · Atlas-koppeling v0.32`.
+Na installatie staat onderaan zichtbaar `Publieksversie 2.2 · Atlas-koppeling v0.33`.

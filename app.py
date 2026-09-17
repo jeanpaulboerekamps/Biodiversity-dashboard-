@@ -103,7 +103,7 @@ if "show_help" not in st.session_state:
 if "show_privacy" not in st.session_state:
     st.session_state.show_privacy = False
 
-st.markdown('<span class="release-badge">Publieksversie 2.1</span>', unsafe_allow_html=True)
+st.markdown('<span class="release-badge">Publieksversie 2.2</span>', unsafe_allow_html=True)
 st.title("🌿 Mijn Biodiversiteit")
 st.caption("Ontdek welke soorten leven in je tuin, buurt, park of natuurgebied.")
 
@@ -116,13 +116,26 @@ st.markdown(
       soorten en vind jouw waarnemingen terug in de Atlas of Life.</p>
     </div>
     <div class="steps-grid">
-      <div class="step-card"><b>1 · Kies een gebied</b>Teken een tuin of landschap, of open een bewaard gebied.</div>
-      <div class="step-card"><b>2 · Stel je vraag</b>Kies periode, waarnemers en het overzicht dat je wilt zien.</div>
-      <div class="step-card"><b>3 · Ontdek</b>Start de analyse en verken soorten, kaarten en ontwikkelingen.</div>
+      <div class="step-card"><b>1 · Wat leeft hier?</b>Bekijk soortgroepen en de soorten die het vaakst zijn gezien.</div>
+      <div class="step-card"><b>2 · Waar en wanneer?</b>Ontdek ruimtelijke patronen en veranderingen door de tijd.</div>
+      <div class="step-card"><b>3 · Wat kan ik ontdekken?</b>Vind kansrijke nieuwe soorten en verken de Atlas of Life.</div>
     </div>
     """,
     unsafe_allow_html=True,
 )
+
+photo_dir = Path(__file__).with_name("assets")
+photo_columns = st.columns(3)
+photo_columns[0].image(str(photo_dir / "hommel.jpg"), caption="Bestuivers maken tuinen levend", width="stretch")
+photo_columns[1].image(str(photo_dir / "vlinder.jpg"), caption="Elke soort vertelt iets over haar leefgebied", width="stretch")
+photo_columns[2].image(str(photo_dir / "roodborst.jpg"), caption="Biodiversiteit begint vaak vlak bij huis", width="stretch")
+
+with st.expander("Fotobronnen en licenties"):
+    st.markdown(
+        "- Hommel — René Cortin, [Wikimedia Commons](https://commons.wikimedia.org/wiki/File:Bombus_vestalis_the_vestal_cuckoo_bumblebee_-_by_Rene_Cortin.jpg), CC BY-SA 4.0  \n"
+        "- Klein koolwitje — Rudolphous, [Wikimedia Commons](https://commons.wikimedia.org/wiki/File:Noordwijk_-_Klein_koolwitje_%28Pieris_rapae%29_on_pink_flower.jpg), CC BY-SA 4.0  \n"
+        "- Roodborst — Charles J. Sharp, [Wikimedia Commons](https://commons.wikimedia.org/wiki/File:European_robin_%28Erithacus_rubecula%29_Drenthe.jpg), CC BY-SA 4.0"
+    )
 
 top_a, top_b = st.columns(2)
 if top_a.button("ℹ️ Hoe werkt deze app?", key="toggle_help"):
@@ -1045,21 +1058,22 @@ with tab_dashboard:
             }[quality_label]
 
         overview_labels = {
-            "🌳 Welke soortgroepen zijn er?": "Taxonomische samenstelling",
-            "🧭 Waar staan mijn soorten in de Atlas of Life?": "Mijn waarnemingen in Atlas of Life",
-            "🔥 Waar liggen de meeste waarnemingen?": "Heatmap",
-            "📅 Hoe ontwikkelt de biodiversiteit zich per jaar?": "Per jaar",
-            "🌦️ Hoe verandert de natuur door het jaar?": "Gemiddeld per kalendermaand",
-            "📈 Hoe groeit het aantal gevonden soorten?": "Cumulatief aantal soorten per kwartaal",
-            "🕰️ Wanneer vond ik iedere soort voor het eerst?": "Tijdlijn nieuwe soorten",
-            "🏆 Welke soorten zijn het meest waargenomen?": "Meest waargenomen soorten",
-            "🎯 Welke soorten kan ik hier nog ontdekken?": "Target soorten",
+            "1 · Wat leeft hier? — Soortgroepen": "Taxonomische samenstelling",
+            "1 · Wat leeft hier? — Meest waargenomen soorten": "Meest waargenomen soorten",
+            "2 · Waar en wanneer? — Kaart met concentraties": "Heatmap",
+            "2 · Waar en wanneer? — Ontwikkeling per jaar": "Per jaar",
+            "2 · Waar en wanneer? — Seizoenspatroon": "Gemiddeld per kalendermaand",
+            "2 · Waar en wanneer? — Groei van het aantal soorten": "Cumulatief aantal soorten per kwartaal",
+            "2 · Waar en wanneer? — Tijdlijn van eerste vondsten": "Tijdlijn nieuwe soorten",
+            "3 · Wat kan ik ontdekken? — Kansrijke nieuwe soorten": "Target soorten",
+            "3 · Wat kan ik ontdekken? — Mijn soorten in de Atlas of Life": "Mijn waarnemingen in Atlas of Life",
         }
-        overview_label = st.selectbox(
-            "2 · Kies een overzicht",
+        overview_label = st.radio(
+            "2 · Kies één vraag",
             list(overview_labels),
-            help="De app berekent alleen het overzicht dat je kiest.",
-            key="overview_choice_public_v32",
+            index=0,
+            help="Alle mogelijkheden blijven zichtbaar. De app berekent alleen je gekozen overzicht.",
+            key="overview_choice_public_v33",
         )
         overview_choice = overview_labels[overview_label]
 
@@ -1882,7 +1896,7 @@ with tab_dashboard:
             checkpoint("DASHBOARD_RENDER_DONE")
 
 st.caption(
-    "Publieksversie 2.1 · Atlas-koppeling v0.32 · analyse start alleen na jouw opdracht."
+    "Publieksversie 2.2 · Atlas-koppeling v0.33 · analyse start alleen na jouw opdracht."
 )
 
 checkpoint("APP_END")
