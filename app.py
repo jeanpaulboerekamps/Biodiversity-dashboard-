@@ -42,7 +42,7 @@ st.set_page_config(
 
 st.markdown("""
 <style>
-.block-container {padding-top: 1rem; padding-bottom: 4rem; max-width: 1200px;}
+.block-container {padding-top: 1.4rem; padding-bottom: 4rem; max-width: 1200px;}
 div.stButton > button, div.stDownloadButton > button {
     min-height: 52px; font-size: 1.05rem; border-radius: 12px; width: 100%;
 }
@@ -52,14 +52,31 @@ div.stButton > button, div.stDownloadButton > button {
 h1 {font-size: clamp(1.8rem, 5vw, 2.8rem);}
 .release-badge {
     display:inline-block; padding:.25rem .65rem; border-radius:999px;
-    background:rgba(46,125,50,.12); font-weight:700; margin-bottom:.6rem;
+    background:#e8f5e9; color:#1b5e20; font-weight:700; margin-bottom:.6rem;
 }
-.welcome-card {
-    padding:1rem 1.1rem; border:1px solid rgba(128,128,128,.22);
-    border-radius:16px; margin:.4rem 0 1rem 0;
+.hero-card {
+    padding:1.25rem 1.35rem; border:1px solid rgba(46,125,50,.18);
+    border-radius:22px; margin:.4rem 0 1rem 0;
+    background:linear-gradient(135deg,rgba(232,245,233,.92),rgba(227,242,253,.78));
+}
+.hero-card h2 {margin:0 0 .35rem 0; color:#173b2b; font-size:1.35rem;}
+.hero-card p {margin:0; color:#29473b; font-size:1.02rem; line-height:1.55;}
+.steps-grid {
+    display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:.75rem;
+    margin:.4rem 0 1.15rem 0;
+}
+.step-card {
+    padding:.9rem 1rem; border-radius:16px; background:rgba(255,255,255,.78);
+    border:1px solid rgba(128,128,128,.18); min-height:92px;
+}
+.step-card b {display:block; color:#1b5e20; margin-bottom:.25rem;}
+.active-area {
+    padding:.7rem .9rem; border-radius:14px; background:rgba(33,150,243,.08);
+    border-left:4px solid #2196f3; margin:.2rem 0 .8rem 0;
 }
 @media (max-width: 768px) {
   .block-container {padding-left: .8rem; padding-right: .8rem;}
+  .steps-grid {grid-template-columns:1fr;}
 }
 </style>
 """, unsafe_allow_html=True)
@@ -86,16 +103,22 @@ if "show_help" not in st.session_state:
 if "show_privacy" not in st.session_state:
     st.session_state.show_privacy = False
 
-st.markdown('<span class="release-badge">Versie 2.0</span>', unsafe_allow_html=True)
+st.markdown('<span class="release-badge">Publieksversie 2.1</span>', unsafe_allow_html=True)
 st.title("🌿 Mijn Biodiversiteit")
-st.caption("Ontdek de natuur om je heen — met openbare waarnemingen van iNaturalist en optioneel Waarneming.nl.")
+st.caption("Ontdek welke soorten leven in je tuin, buurt, park of natuurgebied.")
 
 st.markdown(
     """
-    <div class="welcome-card">
-      <b>Welkom!</b><br>
-      Teken je tuin, park of natuurgebied, of open een eerder opgeslagen gebied.
-      Daarna kies je in het dashboard precies het overzicht dat je wilt bekijken.
+    <div class="hero-card">
+      <h2>Jouw gebied als levende soortenkaart</h2>
+      <p>Gebruik openbare natuurwaarnemingen om de biodiversiteit van een zelfgekozen
+      gebied te verkennen. Bekijk patronen door de tijd, ontdek kansrijke nieuwe
+      soorten en vind jouw waarnemingen terug in de Atlas of Life.</p>
+    </div>
+    <div class="steps-grid">
+      <div class="step-card"><b>1 · Kies een gebied</b>Teken een tuin of landschap, of open een bewaard gebied.</div>
+      <div class="step-card"><b>2 · Stel je vraag</b>Kies periode, waarnemers en het overzicht dat je wilt zien.</div>
+      <div class="step-card"><b>3 · Ontdek</b>Start de analyse en verken soorten, kaarten en ontwikkelingen.</div>
     </div>
     """,
     unsafe_allow_html=True,
@@ -109,10 +132,10 @@ if top_b.button("🔒 Privacy & gegevens", key="toggle_privacy"):
 
 if st.session_state.show_help:
     st.info(
-        "1. Teken een nieuw gebied of open een opgeslagen GeoJSON. "
-        "2. Ga naar Dashboard en kies periode, kwaliteit en overzicht. "
-        "3. Start de analyse. Voor ‘Mijn waarnemingen’ vul je alleen je openbare "
-        "iNaturalist-gebruikersnaam in; je wachtwoord is nooit nodig."
+        "Begin bij ‘1 · Gebied’. Teken daar de grens of open een eerder bewaard bestand. "
+        "Ga daarna naar ‘2 · Ontdekken’. Voor je persoonlijke waarnemingen vul je alleen "
+        "je openbare iNaturalist-gebruikersnaam in; een wachtwoord is nooit nodig. "
+        "De eerste grote analyse kan wat langer duren, volgende identieke analyses gebruiken de cache."
     )
 
 if st.session_state.show_privacy:
@@ -123,7 +146,7 @@ if st.session_state.show_privacy:
         "als GeoJSON-bestand door jou zelf bewaard."
     )
 
-tab_areas, tab_dashboard = st.tabs(["🗺️ Mijn gebieden", "📊 Dashboard"])
+tab_areas, tab_dashboard = st.tabs(["1 · 🗺️ Gebied", "2 · 🔎 Ontdekken"])
 
 with tab_areas:
 
@@ -135,7 +158,7 @@ with tab_areas:
         st.session_state.timeline_key = None
         st.success("Klaar voor een nieuw gebied. Teken het gebied op de kaart en geef het een naam.")
 
-    st.subheader("Nieuw of bestaand gebied")
+    st.subheader("Kies het gebied dat je wilt onderzoeken")
 
     if st.session_state.areas:
         names = list(st.session_state.areas)
@@ -973,45 +996,83 @@ with tab_dashboard:
     active = st.session_state.active_area
 
     if not active or active not in st.session_state.areas:
-        st.info("Maak of kies eerst een gebied in ‘Mijn gebieden’.")
+        st.info("Kies eerst een gebied in de tab ‘1 · Gebied’. Daarna kun je hier de biodiversiteit ontdekken.")
     else:
-        st.subheader(active)
+        st.markdown(
+            f'<div class="active-area"><b>Gekozen gebied:</b> {html.escape(active)}</div>',
+            unsafe_allow_html=True,
+        )
+        st.subheader("Wat wil je ontdekken?")
 
-        with st.expander("Filters", expanded=True):
-            username = st.text_input("iNaturalist-gebruikersnaam", value="")
+        with st.expander("1 · Waarnemingen kiezen", expanded=True):
             mode = st.segmented_control(
-                "Waarnemers",
+                "Van wie wil je waarnemingen bekijken?",
                 ["Mijn waarnemingen", "Alle waarnemers"],
                 default="Mijn waarnemingen",
             )
+            username = ""
+            if mode == "Mijn waarnemingen":
+                username = st.text_input(
+                    "Jouw openbare iNaturalist-gebruikersnaam",
+                    value="",
+                    placeholder="Bijvoorbeeld: natuurfan123",
+                    help="We vragen nooit om je iNaturalist-wachtwoord.",
+                )
 
-            c1, c2 = st.columns(2)
-            with c1:
-                start_year = st.number_input("Vanaf", 2000, date.today().year, 2020)
-            with c2:
-                end_year = st.number_input("Tot en met", 2000, date.today().year, date.today().year)
+            start_year, end_year = st.slider(
+                "Periode",
+                min_value=2000,
+                max_value=date.today().year,
+                value=(2020, date.today().year),
+                help="Kies het eerste en laatste kalenderjaar van de analyse.",
+            )
 
-            quality = st.selectbox("Kwaliteit", ["Alle", "Research grade", "Needs ID", "Casual"])
+            quality_label = st.selectbox(
+                "Kwaliteit van de waarnemingen",
+                [
+                    "Alle kwaliteitsniveaus",
+                    "Onderzoekskwaliteit",
+                    "Heeft nog identificatie nodig",
+                    "Informeel",
+                ],
+                help="Kies ‘Alle kwaliteitsniveaus’ voor het breedste overzicht.",
+            )
+            quality = {
+                "Alle kwaliteitsniveaus": "Alle",
+                "Onderzoekskwaliteit": "Research grade",
+                "Heeft nog identificatie nodig": "Needs ID",
+                "Informeel": "Casual",
+            }[quality_label]
 
-        st.markdown("### Overzicht")
-        overview_choice = st.radio(
-            "Kies overzicht",
-            [
-                "Taxonomische samenstelling",
-                "Mijn waarnemingen in Atlas of Life",
-                "Heatmap",
-                "Per jaar",
-                "Gemiddeld per kalendermaand",
-                "Cumulatief aantal soorten per kwartaal",
-                "Tijdlijn nieuwe soorten",
-                "Meest waargenomen soorten",
-                "Target soorten",
-            ],
-            index=0,
-            horizontal=False,
-            help="De keuzes blijven zichtbaar; alleen het gekozen overzicht wordt berekend.",
-            key="overview_choice_fixed",
+        overview_labels = {
+            "🌳 Welke soortgroepen zijn er?": "Taxonomische samenstelling",
+            "🧭 Waar staan mijn soorten in de Atlas of Life?": "Mijn waarnemingen in Atlas of Life",
+            "🔥 Waar liggen de meeste waarnemingen?": "Heatmap",
+            "📅 Hoe ontwikkelt de biodiversiteit zich per jaar?": "Per jaar",
+            "🌦️ Hoe verandert de natuur door het jaar?": "Gemiddeld per kalendermaand",
+            "📈 Hoe groeit het aantal gevonden soorten?": "Cumulatief aantal soorten per kwartaal",
+            "🕰️ Wanneer vond ik iedere soort voor het eerst?": "Tijdlijn nieuwe soorten",
+            "🏆 Welke soorten zijn het meest waargenomen?": "Meest waargenomen soorten",
+            "🎯 Welke soorten kan ik hier nog ontdekken?": "Target soorten",
+        }
+        overview_label = st.selectbox(
+            "2 · Kies een overzicht",
+            list(overview_labels),
+            help="De app berekent alleen het overzicht dat je kiest.",
+            key="overview_choice_public_v32",
         )
+        overview_choice = overview_labels[overview_label]
+
+        if overview_choice in {
+            "Taxonomische samenstelling",
+            "Mijn waarnemingen in Atlas of Life",
+            "Tijdlijn nieuwe soorten",
+            "Target soorten",
+        }:
+            st.caption(
+                "Dit overzicht gebruikt aanvullende soortgegevens. De eerste analyse kan daarom "
+                "wat langer duren; een herhaling met dezelfde instellingen is doorgaans sneller."
+            )
 
         target_radius = 25
         target_period = 5
@@ -1023,7 +1084,7 @@ with tab_dashboard:
         if overview_choice == "Target soorten":
             st.markdown("### Target-instellingen")
             st.caption(
-                "Stel eerst de zoekopdracht in. Daarna druk je op ‘Analyseer dit gebied’."
+                "Stel eerst de zoekopdracht in. Kies daarna ‘Start de ontdekking’."
             )
 
             target_radius = st.segmented_control(
@@ -1079,7 +1140,7 @@ with tab_dashboard:
                         help="Dit wordt niet in GitHub opgeslagen.",
                     ).strip()
 
-        if st.button("🔎 Analyseer dit gebied", type="primary", width="stretch"):
+        if st.button("🌿 Start de ontdekking", type="primary", width="stretch"):
             # Persoonlijke overzichten hebben een iNaturalist-gebruikersnaam nodig.
             # Target soorten gebruikt algemene openbare waarnemingen en vormt daarop een uitzondering.
             if (
@@ -1088,7 +1149,7 @@ with tab_dashboard:
                 and not username.strip()
             ):
                 st.error(
-                    "Vul eerst je iNaturalist-gebruikersnaam in, of kies "
+                    "Vul eerst je openbare iNaturalist-gebruikersnaam in, of kies "
                     "‘Alle waarnemers’."
                 )
                 st.stop()
@@ -1353,7 +1414,7 @@ with tab_dashboard:
             if taxonomy_needed_now and not taxonomy_available:
                 st.info(
                     "Dit overzicht heeft aanvullende soortgegevens nodig. "
-                    "Klik één keer opnieuw op ‘Analyseer dit gebied’ met deze keuze actief. "
+                    "Kies één keer opnieuw ‘Start de ontdekking’ met deze keuze actief. "
                     "Daarna kun je het overzicht gebruiken."
                 )
 
@@ -1821,8 +1882,7 @@ with tab_dashboard:
             checkpoint("DASHBOARD_RENDER_DONE")
 
 st.caption(
-    "versie 1.2 · Atlas-koppeling v0.31 · vaste overzichtskeuze + Target-instellingen vóór analyse · "
-    "geen iNaturalist-analyse vóór je op ‘Analyseer dit gebied’ drukt."
+    "Publieksversie 2.1 · Atlas-koppeling v0.32 · analyse start alleen na jouw opdracht."
 )
 
 checkpoint("APP_END")
@@ -1830,6 +1890,6 @@ checkpoint("APP_END")
 
 st.divider()
 st.caption(
-    "Mijn Biodiversiteit v2.0 · Gegevens via iNaturalist · "
-    "iNaturalist is een externe dienst; beschikbaarheid en gegevens kunnen wijzigen."
+    "Mijn Biodiversiteit · Gebaseerd op openbare gegevens van iNaturalist · "
+    "Beschikbaarheid, identificaties en soortnamen kunnen in de tijd veranderen."
 )
