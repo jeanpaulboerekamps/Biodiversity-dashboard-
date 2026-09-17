@@ -116,11 +116,22 @@ if "show_area_creator" not in st.session_state:
 if "analysis_key" not in st.session_state:
     st.session_state.analysis_key = None
 
-st.markdown('<span class="release-badge">Publieksversie 2.4</span>', unsafe_allow_html=True)
+st.markdown('<span class="release-badge">Publieksversie 2.5</span>', unsafe_allow_html=True)
 st.title("🌿 Mijn Biodiversiteit")
 st.caption("Kies een gebied en ontdek direct welke soorten er leven.")
 
-photo_dir = Path(__file__).with_name("assets")
+own_photos = st.file_uploader(
+    "Eigen foto's toevoegen (optioneel)",
+    type=["jpg", "jpeg", "png", "webp"],
+    accept_multiple_files=True,
+    key="own_photos_v36",
+    help="Deze foto's blijven alleen tijdens de huidige sessie zichtbaar.",
+)
+if own_photos:
+    photo_columns = st.columns(min(3, len(own_photos)))
+    for index, photo in enumerate(own_photos[:6]):
+        photo_columns[index % len(photo_columns)].image(photo, width="stretch")
+
 area_pick, area_new = st.columns([3, 1])
 with area_pick:
     uploaded_areas = st.file_uploader(
@@ -234,56 +245,6 @@ if st.session_state.show_area_creator:
                 st.session_state.analysis_key = None
                 checkpoint(f"AREA_SAVED name={area_name.strip()}")
                 st.rerun()
-
-if st.session_state.areas:
-    with st.expander("Gebied bewaren of beheren"):
-        export = json.dumps({
-            "type": "FeatureCollection",
-            "features": [
-                {"type": "Feature", "properties": {"name": n}, "geometry": g}
-                for n, g in st.session_state.areas.items()
-            ],
-        }, ensure_ascii=False, indent=2)
-
-        st.download_button(
-            "💾 Alle gebieden opslaan als bestand",
-            export,
-            "mijn_biodiversiteitsgebieden.geojson",
-            "application/geo+json",
-            help="Bewaar het bestand via je browser op de locatie van je keuze.",
-        )
-        active_for_manage = st.session_state.active_area
-        if active_for_manage and active_for_manage in st.session_state.areas:
-            single = json.dumps({
-                "type": "FeatureCollection",
-                "features": [{
-                    "type": "Feature",
-                    "properties": {"name": active_for_manage},
-                    "geometry": st.session_state.areas[active_for_manage],
-                }],
-            }, ensure_ascii=False, indent=2)
-            safe = "".join(c if c.isalnum() or c in "-_" else "_" for c in active_for_manage).strip("_") or "gebied"
-            st.download_button(
-                "💾 Actief gebied opslaan als bestand",
-                single,
-                f"{safe}.geojson",
-                "application/geo+json",
-            )
-            if st.button("🗑️ Actief gebied uit deze sessie verwijderen", key="delete_area_v34"):
-                del st.session_state.areas[active_for_manage]
-                st.session_state.active_area = None
-                st.session_state.analysis_df = None
-                st.session_state.analysis_key = None
-                st.rerun()
-
-with st.expander("Over Mijn Biodiversiteit"):
-    st.write("Openbare natuurwaarnemingen maken de biodiversiteit van je eigen omgeving zichtbaar.")
-    photo_columns = st.columns(3)
-    photo_columns[0].image(str(photo_dir / "hommel.jpg"), caption="Hommel", width="stretch")
-    photo_columns[1].image(str(photo_dir / "vlinder.jpg"), caption="Vlinder", width="stretch")
-    photo_columns[2].image(str(photo_dir / "roodborst.jpg"), caption="Roodborst", width="stretch")
-    st.caption("Foto's: René Cortin, Rudolphous en Charles J. Sharp · Wikimedia Commons · CC BY-SA 4.0")
-
 
 @st.cache_data(ttl=1800, show_spinner=False)
 def fetch_observations(params_tuple):
@@ -936,7 +897,7 @@ with tab_dashboard:
                 mode = st.radio(
                     "Kies bron",
                     ["Alleen mijn waarnemingen", "Alle waarnemingen"],
-                    index=0,
+                    index=1,
                     label_visibility="collapsed",
                     key="observation_scope_v35",
                 )
@@ -980,31 +941,32 @@ with tab_dashboard:
         mode = "Mijn waarnemingen" if mode == "Alleen mijn waarnemingen" else "Alle waarnemers"
 
         overview_labels = {
-            "1 · Wat leeft hier? — Soortgroepen": "Taxonomische samenstelling",
-            "1 · Wat leeft hier? — Meest waargenomen soorten": "Meest waargenomen soorten",
-            "2 · Waar en wanneer? — Kaart met concentraties": "Heatmap",
-            "2 · Waar en wanneer? — Ontwikkeling per jaar": "Per jaar",
-            "2 · Waar en wanneer? — Seizoenspatroon": "Gemiddeld per kalendermaand",
-            "2 · Waar en wanneer? — Groei van het aantal soorten": "Cumulatief aantal soorten per kwartaal",
-            "2 · Waar en wanneer? — Tijdlijn van eerste vondsten": "Tijdlijn nieuwe soorten",
-            "3 · Wat kan ik ontdekken? — Kansrijke nieuwe soorten": "Target soorten",
-            "3 · Wat kan ik ontdekken? — Mijn soorten in de Atlas of Life": "Mijn waarnemingen in Atlas of Life",
+            "Soortgroepen": "Taxonomische samenstelling",
+            "Meest waargenomen soorten": "Meest waargenomen soorten",
+            "Kaart met concentraties": "Heatmap",
+            "Ontwikkeling per jaar": "Per jaar",
+            "Seizoenspatroon": "Gemiddeld per kalendermaand",
+            "Groei van het aantal soorten": "Cumulatief aantal soorten per kwartaal",
+            "Tijdlijn van eerste vondsten": "Tijdlijn nieuwe soorten",
+            "Kansrijke nieuwe soorten": "Target soorten",
+            "Mijn soorten in de Atlas of Life": "Mijn waarnemingen in Atlas of Life",
         }
-        overview_label = st.radio(
-            "Kies één overzicht",
+        overview_selected_labels = st.multiselect(
+            "Overzichten",
             list(overview_labels),
-            index=None,
-            help="Zodra je kiest, begint de analyse automatisch.",
-            key="overview_choice_public_v34",
+            placeholder="Kies een of meer overzichten",
+            help="De analyse begint automatisch na je keuze.",
+            key="overview_choices_public_v36",
+            label_visibility="collapsed",
         )
-        overview_choice = overview_labels.get(overview_label)
+        overview_choices = [overview_labels[label] for label in overview_selected_labels]
 
-        if overview_choice in {
+        if any(choice in {
             "Taxonomische samenstelling",
             "Mijn waarnemingen in Atlas of Life",
             "Tijdlijn nieuwe soorten",
             "Target soorten",
-        }:
+        } for choice in overview_choices):
             st.caption(
                 "Dit overzicht gebruikt aanvullende soortgegevens. De eerste analyse kan daarom "
                 "wat langer duren; een herhaling met dezelfde instellingen is doorgaans sneller."
@@ -1017,7 +979,7 @@ with tab_dashboard:
         target_use_waarneming = False
         target_waarneming_token = get_waarneming_token()
 
-        if overview_choice == "Target soorten":
+        if "Target soorten" in overview_choices:
             st.markdown("### Target-instellingen")
             st.caption(
                 "Pas desgewenst de zoekopdracht aan; de uitkomst wordt daarna automatisch vernieuwd."
@@ -1084,24 +1046,24 @@ with tab_dashboard:
             "start_year": int(start_year),
             "end_year": int(end_year),
             "quality": quality,
-            "overview": overview_choice,
+            "overviews": overview_choices,
             "target_radius": int(target_radius),
             "target_period": int(target_period),
             "target_min_count": int(target_min_count),
             "target_use_inat": bool(target_use_inat),
             "target_use_waarneming": bool(target_use_waarneming),
         }, ensure_ascii=False, sort_keys=True)
-        should_analyze = bool(overview_choice) and st.session_state.analysis_key != analysis_signature
+        should_analyze = bool(overview_choices) and st.session_state.analysis_key != analysis_signature
 
-        if overview_choice is None:
-            st.info("Kies hierboven een overzicht. De analyse start daarna vanzelf.")
+        if not overview_choices:
+            st.info("Kies hierboven een of meer overzichten. De analyse start daarna vanzelf.")
 
         if should_analyze:
             # Persoonlijke overzichten hebben een iNaturalist-gebruikersnaam nodig.
             # Target soorten gebruikt algemene openbare waarnemingen en vormt daarop een uitzondering.
             if (
                 mode == "Mijn waarnemingen"
-                and overview_choice != "Target soorten"
+                and overview_choices != ["Target soorten"]
                 and not username.strip()
             ):
                 st.error(
@@ -1111,7 +1073,7 @@ with tab_dashboard:
                 st.stop()
 
             if (
-                overview_choice == "Mijn waarnemingen in Atlas of Life"
+                "Mijn waarnemingen in Atlas of Life" in overview_choices
                 and mode != "Mijn waarnemingen"
             ):
                 st.error("Kies voor deze Atlas-weergave ‘Mijn waarnemingen’.")
@@ -1137,7 +1099,7 @@ with tab_dashboard:
                     "preferred_place_id": 7506,
                 }
 
-                if mode == "Mijn waarnemingen" and overview_choice != "Target soorten":
+                if mode == "Mijn waarnemingen" and overview_choices != ["Target soorten"]:
                     params["user_id"] = username.strip()
 
                 qp = {
@@ -1169,12 +1131,12 @@ with tab_dashboard:
                         st.warning("Geen exact binnen dit gebied gelegen waarnemingen gevonden.")
                         st.stop()
 
-                    need_taxonomy = overview_choice in {
+                    need_taxonomy = any(choice in {
                         "Taxonomische samenstelling",
                         "Mijn waarnemingen in Atlas of Life",
                         "Tijdlijn nieuwe soorten",
                         "Target soorten",
-                    }
+                    } for choice in overview_choices)
 
                     taxon_lookup = {}
                     english_species_lookup = {}
@@ -1355,14 +1317,14 @@ with tab_dashboard:
             c.metric("Soortgroepen", df["soortgroep"].nunique())
             d.metric("Jaren", df["jaar"].nunique())
 
-            selected_overview = overview_choice
+            selected_overviews = set(overview_choices)
 
-            taxonomy_needed_now = selected_overview in {
+            taxonomy_needed_now = any(choice in {
                 "Taxonomische samenstelling",
                 "Mijn waarnemingen in Atlas of Life",
                 "Tijdlijn nieuwe soorten",
                 "Target soorten",
-            }
+            } for choice in selected_overviews)
             taxonomy_available = (
                 "orde" in df.columns
                 and df["orde"].notna().any()
@@ -1377,7 +1339,7 @@ with tab_dashboard:
                     "Kies het overzicht opnieuw om de aanvullende gegevens op te halen."
                 )
 
-            if selected_overview == "Taxonomische samenstelling" and taxonomy_available:
+            if "Taxonomische samenstelling" in selected_overviews and taxonomy_available:
                 st.subheader("Samenstelling per soortgroep")
                 group_counts = (
                     df["soortgroep"].fillna("Onbekend")
@@ -1387,7 +1349,7 @@ with tab_dashboard:
                 )
                 pie_chart(group_counts, "soortgroep", "waarnemingen", "Waarnemingen per soortgroep")
 
-            if selected_overview == "Mijn waarnemingen in Atlas of Life" and taxonomy_available:
+            if "Mijn waarnemingen in Atlas of Life" in selected_overviews and taxonomy_available:
                 st.subheader("Mijn waarnemingen in Atlas of Life")
                 st.caption(
                     "Blauwe punten zijn soorten die jij in het gekozen gebied en de gekozen periode "
@@ -1396,7 +1358,7 @@ with tab_dashboard:
                 )
                 render_personal_atlas(df)
 
-            if selected_overview == "Taxonomische samenstelling" and taxonomy_available:
+            if "Taxonomische samenstelling" in selected_overviews and taxonomy_available:
                 insects = df[df["soortgroep"].eq("Insecta")].copy()
 
                 if not insects.empty:
@@ -1434,7 +1396,7 @@ with tab_dashboard:
                         pie_chart(fam_counts, "familie", "waarnemingen", "Vlinders uitgesplitst naar familie")
 
 
-            if selected_overview == "Heatmap":
+            if "Heatmap" in selected_overviews:
                 st.subheader("Heatmap van waarnemingen")
                 st.caption(
                     "Donkerdere/intenser gekleurde zones bevatten meer waarnemingen. "
@@ -1484,7 +1446,7 @@ with tab_dashboard:
                 else:
                     st.info("Voor deze selectie zijn geen bruikbare coördinaten beschikbaar.")
 
-            if selected_overview == "Per jaar":
+            if "Per jaar" in selected_overviews:
                 st.subheader("Waarnemingen en taxa per jaar")
                 yearly = (
                     df.groupby("jaar")
@@ -1504,7 +1466,7 @@ with tab_dashboard:
                 fig_year.update_layout(legend_title_text="")
                 st.plotly_chart(fig_year, use_container_width=True)
 
-            if selected_overview == "Gemiddeld per kalendermaand":
+            if "Gemiddeld per kalendermaand" in selected_overviews:
                 st.subheader("Gemiddeld per kalendermaand")
                 years = list(range(meta["start_year"], meta["end_year"] + 1))
                 idx = pd.MultiIndex.from_product([years, range(1, 13)], names=["jaar", "maand"])
@@ -1537,7 +1499,7 @@ with tab_dashboard:
                 fig_month.update_layout(legend_title_text="")
                 st.plotly_chart(fig_month, use_container_width=True)
 
-            if selected_overview == "Cumulatief aantal soorten per kwartaal":
+            if "Cumulatief aantal soorten per kwartaal" in selected_overviews:
                 st.subheader("Cumulatief aantal soorten per kwartaal")
                 st.caption(
                     "Elke staaf toont hoeveel verschillende soorten er tot en met dat kwartaal "
@@ -1651,7 +1613,7 @@ with tab_dashboard:
 
                 st.plotly_chart(fig_quarter, use_container_width=True)
 
-            if selected_overview == "Tijdlijn nieuwe soorten" and taxonomy_available:
+            if "Tijdlijn nieuwe soorten" in selected_overviews and taxonomy_available:
                 st.subheader("Chronologische tijdlijn van nieuwe soorten")
                 st.caption(
                     "De kaarten staan op datum van de eerste waarneming van die soort in het gekozen "
@@ -1720,7 +1682,7 @@ with tab_dashboard:
 
                 st.markdown(timeline_html(timeline, personal_firsts), unsafe_allow_html=True)
 
-            if selected_overview == "Target soorten" and taxonomy_available:
+            if "Target soorten" in selected_overviews and taxonomy_available:
                 st.subheader("Target soorten")
 
                 target_radius = int(meta.get("target_radius", 25))
@@ -1818,7 +1780,7 @@ with tab_dashboard:
                     "de analyse wordt daarna automatisch vernieuwd."
                 )
 
-            if selected_overview == "Meest waargenomen soorten":
+            if "Meest waargenomen soorten" in selected_overviews:
                 st.subheader("Meest waargenomen soorten")
                 top = (
                     df.groupby(
@@ -1841,7 +1803,7 @@ with tab_dashboard:
             checkpoint("DASHBOARD_RENDER_DONE")
 
 st.caption(
-    "Publieksversie 2.4 · Atlas-koppeling v0.35 · analyse start automatisch na je keuze."
+    "Publieksversie 2.5 · Atlas-koppeling v0.36 · meerdere overzichten tegelijk mogelijk."
 )
 
 checkpoint("APP_END")
