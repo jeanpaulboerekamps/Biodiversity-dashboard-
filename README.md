@@ -1,8 +1,17 @@
-# Mijn Biodiversiteit — publieksversie v0.33
+# Mijn Biodiversiteit — publieksversie v0.34
 
 Publieksvriendelijke versie.
 
-## Nieuw in v0.33
+## Nieuw in v0.34
+
+- Eén doorlopende pagina zonder aparte stappen of tabbladen.
+- Een bewaard GeoJSON-gebied kies je direct bovenaan.
+- De tekenkaart wordt alleen geladen na **Nieuw gebied maken**, wat normaal gebruik lichter maakt.
+- De analyse start automatisch zodra een overzicht is gekozen; de losse analyseknop is vervallen.
+- Reeds berekende combinaties blijven binnen de sessie beschikbaar en API-resultaten gebruiken de cache.
+- De natuurfoto's staan compact onder **Over Mijn Biodiversiteit**.
+
+## Eerder toegevoegd in v0.33
 
 - het hoofdmenu staat weer volledig uitgeklapt in beeld;
 - alle overzichten zijn logisch gegroepeerd onder dezelfde drie publieksvragen
@@ -63,4 +72,4 @@ Zet de Streamlit-app op public en deel de vaste `*.streamlit.app` URL.
 
 ### GitHub
 Vervang bij deze versie minimaal `app.py` (of upload de volledige projectinhoud).
-Na installatie staat onderaan zichtbaar `Publieksversie 2.2 · Atlas-koppeling v0.33`.
+Na installatie staat onderaan zichtbaar `Publieksversie 2.3 · Atlas-koppeling v0.34`.

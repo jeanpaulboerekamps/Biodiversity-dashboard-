@@ -102,41 +102,16 @@ if "show_help" not in st.session_state:
     st.session_state.show_help = False
 if "show_privacy" not in st.session_state:
     st.session_state.show_privacy = False
+if "show_area_creator" not in st.session_state:
+    st.session_state.show_area_creator = False
+if "analysis_key" not in st.session_state:
+    st.session_state.analysis_key = None
 
-st.markdown('<span class="release-badge">Publieksversie 2.2</span>', unsafe_allow_html=True)
+st.markdown('<span class="release-badge">Publieksversie 2.3</span>', unsafe_allow_html=True)
 st.title("🌿 Mijn Biodiversiteit")
-st.caption("Ontdek welke soorten leven in je tuin, buurt, park of natuurgebied.")
-
-st.markdown(
-    """
-    <div class="hero-card">
-      <h2>Jouw gebied als levende soortenkaart</h2>
-      <p>Gebruik openbare natuurwaarnemingen om de biodiversiteit van een zelfgekozen
-      gebied te verkennen. Bekijk patronen door de tijd, ontdek kansrijke nieuwe
-      soorten en vind jouw waarnemingen terug in de Atlas of Life.</p>
-    </div>
-    <div class="steps-grid">
-      <div class="step-card"><b>1 · Wat leeft hier?</b>Bekijk soortgroepen en de soorten die het vaakst zijn gezien.</div>
-      <div class="step-card"><b>2 · Waar en wanneer?</b>Ontdek ruimtelijke patronen en veranderingen door de tijd.</div>
-      <div class="step-card"><b>3 · Wat kan ik ontdekken?</b>Vind kansrijke nieuwe soorten en verken de Atlas of Life.</div>
-    </div>
-    """,
-    unsafe_allow_html=True,
-)
+st.caption("Kies een gebied en ontdek direct welke soorten er leven.")
 
 photo_dir = Path(__file__).with_name("assets")
-photo_columns = st.columns(3)
-photo_columns[0].image(str(photo_dir / "hommel.jpg"), caption="Bestuivers maken tuinen levend", width="stretch")
-photo_columns[1].image(str(photo_dir / "vlinder.jpg"), caption="Elke soort vertelt iets over haar leefgebied", width="stretch")
-photo_columns[2].image(str(photo_dir / "roodborst.jpg"), caption="Biodiversiteit begint vaak vlak bij huis", width="stretch")
-
-with st.expander("Fotobronnen en licenties"):
-    st.markdown(
-        "- Hommel — René Cortin, [Wikimedia Commons](https://commons.wikimedia.org/wiki/File:Bombus_vestalis_the_vestal_cuckoo_bumblebee_-_by_Rene_Cortin.jpg), CC BY-SA 4.0  \n"
-        "- Klein koolwitje — Rudolphous, [Wikimedia Commons](https://commons.wikimedia.org/wiki/File:Noordwijk_-_Klein_koolwitje_%28Pieris_rapae%29_on_pink_flower.jpg), CC BY-SA 4.0  \n"
-        "- Roodborst — Charles J. Sharp, [Wikimedia Commons](https://commons.wikimedia.org/wiki/File:European_robin_%28Erithacus_rubecula%29_Drenthe.jpg), CC BY-SA 4.0"
-    )
-
 top_a, top_b = st.columns(2)
 if top_a.button("ℹ️ Hoe werkt deze app?", key="toggle_help"):
     st.session_state.show_help = not st.session_state.show_help
@@ -145,8 +120,9 @@ if top_b.button("🔒 Privacy & gegevens", key="toggle_privacy"):
 
 if st.session_state.show_help:
     st.info(
-        "Begin bij ‘1 · Gebied’. Teken daar de grens of open een eerder bewaard bestand. "
-        "Ga daarna naar ‘2 · Ontdekken’. Voor je persoonlijke waarnemingen vul je alleen "
+        "Open bovenaan een eerder bewaard gebied. Alleen als je een nieuw gebied nodig hebt, "
+        "open je de tekenkaart met ‘Nieuw gebied maken’. Kies daarna wat je wilt ontdekken; "
+        "de analyse begint vanzelf. Voor persoonlijke waarnemingen vul je alleen "
         "je openbare iNaturalist-gebruikersnaam in; een wachtwoord is nooit nodig. "
         "De eerste grote analyse kan wat langer duren, volgende identieke analyses gebruiken de cache."
     )
@@ -156,141 +132,113 @@ if st.session_state.show_privacy:
         "De app gebruikt openbare gegevens van iNaturalist. Voor persoonlijke overzichten "
         "wordt alleen de door jou ingevulde openbare iNaturalist-gebruikersnaam gebruikt. "
         "De app vraagt niet om je iNaturalist-wachtwoord. Gebieden die je downloadt worden "
-        "als GeoJSON-bestand door jou zelf bewaard."
+        "als GeoJSON-bestand door jou zelf bewaard. Je browser onthoudt doorgaans de laatst "
+        "gebruikte map, maar de app kan uit veiligheidsoverwegingen geen map afdwingen."
     )
 
-tab_areas, tab_dashboard = st.tabs(["1 · 🗺️ Gebied", "2 · 🔎 Ontdekken"])
-
-with tab_areas:
-
-    if st.button("➕ Nieuw gebied", key="new_area"):
-        st.session_state.active_area = None
-        st.session_state.analysis_df = None
-        st.session_state.analysis_meta = {}
-        st.session_state.timeline_firsts = {}
-        st.session_state.timeline_key = None
-        st.success("Klaar voor een nieuw gebied. Teken het gebied op de kaart en geef het een naam.")
-
-    st.subheader("Kies het gebied dat je wilt onderzoeken")
-
-    if st.session_state.areas:
-        names = list(st.session_state.areas)
-        current = st.session_state.active_area if st.session_state.active_area in names else None
-        default_index = names.index(current) + 1 if current else 0
-
-        chosen = st.selectbox(
-            "Opgeslagen gebieden",
-            ["— kies —"] + names,
-            index=default_index,
-            key="saved_area_selector",
-        )
-
-        if chosen != "— kies —":
-            c_open, c_status = st.columns([1, 2])
-            with c_open:
-                if st.button("📂 Gebied openen", type="primary", key="open_saved_area"):
-                    st.session_state.active_area = chosen
-                    st.session_state.analysis_df = None
-                    st.session_state.analysis_meta = {}
-                    st.rerun()
-            with c_status:
-                if st.session_state.active_area == chosen:
-                    st.success(f"Actief gebied: {chosen}")
-
-    st.markdown("### Gebieden openen of bewaren")
-    st.info(
-        "Een webapp mag uit veiligheidsoverwegingen niet zelfstandig naar een willekeurige map "
-        "op je iPad, OneDrive of iCloud schrijven. De app maakt daarom een GeoJSON-bestand; "
-        "via Safari/Bestanden kies je daarna zelf de doelmap."
-    )
+st.markdown("### Gebied")
+area_pick, area_new = st.columns([3, 1])
+with area_pick:
     uploaded_areas = st.file_uploader(
-        "Open een eerder bewaard GeoJSON-bestand",
+        "📂 Selecteer gebied",
         type=["geojson", "json"],
         accept_multiple_files=False,
-        help="Kies een bestand uit de opslaglocaties die op je apparaat beschikbaar zijn.",
+        help="De bestandskiezer opent meestal in de map die je de vorige keer gebruikte.",
+        key="area_file_picker_v34",
+    )
+with area_new:
+    st.write("")
+    if st.button("➕ Nieuw gebied maken", key="new_area_v34"):
+        st.session_state.show_area_creator = not st.session_state.show_area_creator
+
+if uploaded_areas is not None:
+    upload_key = (uploaded_areas.name, uploaded_areas.size)
+    if st.session_state.get("last_area_upload") != upload_key:
+        try:
+            imported = json.loads(uploaded_areas.getvalue().decode("utf-8"))
+            features = (
+                imported.get("features") or []
+                if imported.get("type") == "FeatureCollection"
+                else [imported] if imported.get("type") == "Feature"
+                else []
+            )
+            first_name = None
+            count = 0
+            for i, feature in enumerate(features, 1):
+                geom = feature.get("geometry")
+                if not geom:
+                    continue
+                name = str((feature.get("properties") or {}).get("name") or f"Geïmporteerd gebied {i}").strip()
+                st.session_state.areas[name] = geom
+                first_name = first_name or name
+                count += 1
+            if count:
+                st.session_state.active_area = first_name
+                st.session_state.last_area_upload = upload_key
+                st.session_state.analysis_df = None
+                st.session_state.analysis_meta = {}
+                st.session_state.analysis_key = None
+                st.success(f"'{first_name}' is geselecteerd.")
+                st.rerun()
+            else:
+                st.warning("In dit bestand zijn geen bruikbare gebieden gevonden.")
+        except Exception as e:
+            st.error(f"Dit bestand kon niet als GeoJSON worden geopend: {e}")
+
+if st.session_state.areas:
+    names = list(st.session_state.areas)
+    current = st.session_state.active_area if st.session_state.active_area in names else names[0]
+    chosen = st.selectbox("Geopende gebieden", names, index=names.index(current), key="saved_area_selector_v34")
+    if chosen != st.session_state.active_area:
+        st.session_state.active_area = chosen
+        st.session_state.analysis_df = None
+        st.session_state.analysis_meta = {}
+        st.session_state.analysis_key = None
+        st.rerun()
+
+if st.session_state.active_area:
+    st.markdown(
+        f'<div class="active-area"><b>Actief gebied:</b> {html.escape(st.session_state.active_area)}</div>',
+        unsafe_allow_html=True,
     )
 
-    if uploaded_areas is not None:
-        upload_key = (uploaded_areas.name, uploaded_areas.size)
-        if st.session_state.get("last_area_upload") != upload_key:
-            try:
-                imported = json.loads(uploaded_areas.getvalue().decode("utf-8"))
-                features = (
-                    imported.get("features") or []
-                    if imported.get("type") == "FeatureCollection"
-                    else [imported] if imported.get("type") == "Feature"
-                    else []
-                )
-                count = 0
-                first_name = None
-                for i, feature in enumerate(features, 1):
-                    geom = feature.get("geometry")
-                    if not geom:
-                        continue
-                    name = str((feature.get("properties") or {}).get("name") or f"Geïmporteerd gebied {i}").strip()
-                    st.session_state.areas[name] = geom
-                    first_name = first_name or name
-                    count += 1
-                if count:
-                    st.session_state.active_area = first_name
-                    st.session_state.last_area_upload = upload_key
-                    st.session_state.analysis_df = None
-                    st.session_state.analysis_meta = {}
-                    st.success(f"{count} gebied(en) ingelezen. '{first_name}' is actief gemaakt.")
-                    st.rerun()
-                else:
-                    st.warning("In dit bestand zijn geen bruikbare gebieden gevonden.")
-            except Exception as e:
-                st.error(f"Dit bestand kon niet als GeoJSON worden geopend: {e}")
+if st.session_state.show_area_creator:
+    with st.container(border=True):
+        st.subheader("Nieuw gebied maken")
+        st.caption("Teken een polygoon of rechthoek, geef het gebied een naam en bewaar het bestand.")
+        area_name = st.text_input("Naam van het gebied", placeholder="Bijvoorbeeld: Mijn tuin")
 
-    area_name = st.text_input("Naam van het gebied", placeholder="Bijvoorbeeld: Mijn tuin")
-    st.write("**Teken hieronder de grens.** Gebruik het polygoon- of rechthoek-icoon links op de kaart.")
+        center = [51.93, 4.84]
+        zoom = 11
+        if st.session_state.active_area and st.session_state.active_area in st.session_state.areas:
+            existing = shape(st.session_state.areas[st.session_state.active_area])
+            c = existing.centroid
+            center, zoom = [c.y, c.x], 16
 
-    center = [51.93, 4.84]
-    zoom = 11
-    if st.session_state.active_area and st.session_state.active_area in st.session_state.areas:
-        existing = shape(st.session_state.areas[st.session_state.active_area])
-        c = existing.centroid
-        center, zoom = [c.y, c.x], 16
+        checkpoint("MAP_BUILD_START")
+        m = folium.Map(location=center, zoom_start=zoom, tiles="OpenStreetMap", control_scale=True)
 
-    checkpoint("MAP_BUILD_START")
-    m = folium.Map(location=center, zoom_start=zoom, tiles="OpenStreetMap", control_scale=True)
+        if st.session_state.active_area and st.session_state.active_area in st.session_state.areas:
+            folium.GeoJson(
+                st.session_state.areas[st.session_state.active_area],
+                style_function=lambda _: {"weight": 3, "fillOpacity": 0.12},
+            ).add_to(m)
 
-    if st.session_state.active_area and st.session_state.active_area in st.session_state.areas:
-        folium.GeoJson(
-            st.session_state.areas[st.session_state.active_area],
-            style_function=lambda _: {"weight": 3, "fillOpacity": 0.12},
+        Draw(
+            export=False,
+            position="topleft",
+            draw_options={"polyline": False, "circle": False, "circlemarker": False, "marker": False,
+                          "polygon": {"allowIntersection": False, "showArea": True}, "rectangle": True},
+            edit_options={"edit": True, "remove": True},
         ).add_to(m)
 
-    Draw(
-        export=False,
-        position="topleft",
-        draw_options={
-            "polyline": False,
-            "circle": False,
-            "circlemarker": False,
-            "marker": False,
-            "polygon": {"allowIntersection": False, "showArea": True},
-            "rectangle": True,
-        },
-        edit_options={"edit": True, "remove": True},
-    ).add_to(m)
+        map_state = st_folium(m, height=520, use_container_width=True, key="draw_map_v34", returned_objects=["all_drawings"])
+        checkpoint("MAP_RENDERED")
 
-    map_state = st_folium(
-        m,
-        height=560,
-        use_container_width=True,
-        key="draw_map",
-        returned_objects=["all_drawings"],
-    )
-    checkpoint("MAP_RENDERED")
+        drawings = map_state.get("all_drawings") or []
+        newest_geom = drawings[-1].get("geometry") if drawings else None
 
-    drawings = map_state.get("all_drawings") or []
-    newest_geom = drawings[-1].get("geometry") if drawings else None
-
-    c1, c2 = st.columns(2)
-    with c1:
-        if st.button("💾 Gebied bewaren", type="primary"):
+        if st.button("💾 Gebied gebruiken", type="primary", key="save_area_v34"):
             if not area_name.strip():
                 st.error("Geef het gebied eerst een naam.")
             elif not newest_geom:
@@ -298,37 +246,13 @@ with tab_areas:
             else:
                 st.session_state.areas[area_name.strip()] = newest_geom
                 st.session_state.active_area = area_name.strip()
-                st.success(f"'{area_name.strip()}' is voor deze sessie opgeslagen.")
+                st.session_state.show_area_creator = False
+                st.session_state.analysis_key = None
                 checkpoint(f"AREA_SAVED name={area_name.strip()}")
-
-    with c2:
-        if st.button("🗑️ Actief gebied verwijderen"):
-            n = st.session_state.active_area
-            if n and n in st.session_state.areas:
-                del st.session_state.areas[n]
-                st.session_state.active_area = None
-                st.session_state.analysis_df = None
-                checkpoint(f"AREA_DELETED name={n}")
                 st.rerun()
 
-    if st.session_state.areas:
-        st.markdown("### Gebieden beheren")
-
-        active_for_manage = st.session_state.active_area
-        if active_for_manage and active_for_manage in st.session_state.areas:
-            new_name = st.text_input("Actief gebied hernoemen", value=active_for_manage, key="rename_area_name")
-            if st.button("✏️ Hernoemen"):
-                clean = new_name.strip()
-                if not clean:
-                    st.error("De naam mag niet leeg zijn.")
-                elif clean != active_for_manage and clean in st.session_state.areas:
-                    st.error("Er bestaat al een gebied met deze naam.")
-                elif clean != active_for_manage:
-                    geom = st.session_state.areas.pop(active_for_manage)
-                    st.session_state.areas[clean] = geom
-                    st.session_state.active_area = clean
-                    st.rerun()
-
+if st.session_state.areas:
+    with st.expander("Gebied bewaren of beheren"):
         export = json.dumps({
             "type": "FeatureCollection",
             "features": [
@@ -344,7 +268,7 @@ with tab_areas:
             "application/geo+json",
             help="Bewaar het bestand via je browser op de locatie van je keuze.",
         )
-
+        active_for_manage = st.session_state.active_area
         if active_for_manage and active_for_manage in st.session_state.areas:
             single = json.dumps({
                 "type": "FeatureCollection",
@@ -361,11 +285,20 @@ with tab_areas:
                 f"{safe}.geojson",
                 "application/geo+json",
             )
+            if st.button("🗑️ Actief gebied uit deze sessie verwijderen", key="delete_area_v34"):
+                del st.session_state.areas[active_for_manage]
+                st.session_state.active_area = None
+                st.session_state.analysis_df = None
+                st.session_state.analysis_key = None
+                st.rerun()
 
-        st.caption(
-            "Het GeoJSON-bestand is je permanente kopie. Bewaar het waar je wilt en open het later "
-            "weer met de bestandskiezer hierboven."
-        )
+with st.expander("Over Mijn Biodiversiteit"):
+    st.write("Openbare natuurwaarnemingen maken de biodiversiteit van je eigen omgeving zichtbaar.")
+    photo_columns = st.columns(3)
+    photo_columns[0].image(str(photo_dir / "hommel.jpg"), caption="Hommel", width="stretch")
+    photo_columns[1].image(str(photo_dir / "vlinder.jpg"), caption="Vlinder", width="stretch")
+    photo_columns[2].image(str(photo_dir / "roodborst.jpg"), caption="Roodborst", width="stretch")
+    st.caption("Foto's: René Cortin, Rudolphous en Charles J. Sharp · Wikimedia Commons · CC BY-SA 4.0")
 
 
 @st.cache_data(ttl=1800, show_spinner=False)
@@ -1005,11 +938,12 @@ def render_personal_atlas(df):
     )
 
 
+tab_dashboard = st.container()
 with tab_dashboard:
     active = st.session_state.active_area
 
     if not active or active not in st.session_state.areas:
-        st.info("Kies eerst een gebied in de tab ‘1 · Gebied’. Daarna kun je hier de biodiversiteit ontdekken.")
+        st.info("Selecteer hierboven een bewaard gebied, of maak een nieuw gebied.")
     else:
         st.markdown(
             f'<div class="active-area"><b>Gekozen gebied:</b> {html.escape(active)}</div>',
@@ -1069,13 +1003,13 @@ with tab_dashboard:
             "3 · Wat kan ik ontdekken? — Mijn soorten in de Atlas of Life": "Mijn waarnemingen in Atlas of Life",
         }
         overview_label = st.radio(
-            "2 · Kies één vraag",
+            "Kies één overzicht",
             list(overview_labels),
-            index=0,
-            help="Alle mogelijkheden blijven zichtbaar. De app berekent alleen je gekozen overzicht.",
-            key="overview_choice_public_v33",
+            index=None,
+            help="Zodra je kiest, begint de analyse automatisch.",
+            key="overview_choice_public_v34",
         )
-        overview_choice = overview_labels[overview_label]
+        overview_choice = overview_labels.get(overview_label)
 
         if overview_choice in {
             "Taxonomische samenstelling",
@@ -1098,7 +1032,7 @@ with tab_dashboard:
         if overview_choice == "Target soorten":
             st.markdown("### Target-instellingen")
             st.caption(
-                "Stel eerst de zoekopdracht in. Kies daarna ‘Start de ontdekking’."
+                "Pas desgewenst de zoekopdracht aan; de uitkomst wordt daarna automatisch vernieuwd."
             )
 
             target_radius = st.segmented_control(
@@ -1154,7 +1088,27 @@ with tab_dashboard:
                         help="Dit wordt niet in GitHub opgeslagen.",
                     ).strip()
 
-        if st.button("🌿 Start de ontdekking", type="primary", width="stretch"):
+        analysis_signature = json.dumps({
+            "area": active,
+            "geometry": st.session_state.areas[active],
+            "mode": mode,
+            "username": username.strip(),
+            "start_year": int(start_year),
+            "end_year": int(end_year),
+            "quality": quality,
+            "overview": overview_choice,
+            "target_radius": int(target_radius),
+            "target_period": int(target_period),
+            "target_min_count": int(target_min_count),
+            "target_use_inat": bool(target_use_inat),
+            "target_use_waarneming": bool(target_use_waarneming),
+        }, ensure_ascii=False, sort_keys=True)
+        should_analyze = bool(overview_choice) and st.session_state.analysis_key != analysis_signature
+
+        if overview_choice is None:
+            st.info("Kies hierboven een overzicht. De analyse start daarna vanzelf.")
+
+        if should_analyze:
             # Persoonlijke overzichten hebben een iNaturalist-gebruikersnaam nodig.
             # Target soorten gebruikt algemene openbare waarnemingen en vormt daarop een uitzondering.
             if (
@@ -1389,6 +1343,7 @@ with tab_dashboard:
                     }
                     st.session_state.timeline_firsts = {}
                     st.session_state.timeline_key = None
+                    st.session_state.analysis_key = analysis_signature
 
                     checkpoint(f"DATAFRAME_READY rows={len(df)}")
                     status.update(label="Analyse gereed", state="complete")
@@ -1397,7 +1352,10 @@ with tab_dashboard:
                 log.exception("ANALYSIS_FATAL")
                 st.error(f"Analyse kon niet worden voltooid: {e}")
 
-        df = st.session_state.analysis_df
+        df = (
+            st.session_state.analysis_df
+            if st.session_state.analysis_key == analysis_signature else None
+        )
         meta = st.session_state.analysis_meta
 
         if df is not None and not df.empty:
@@ -1428,8 +1386,7 @@ with tab_dashboard:
             if taxonomy_needed_now and not taxonomy_available:
                 st.info(
                     "Dit overzicht heeft aanvullende soortgegevens nodig. "
-                    "Kies één keer opnieuw ‘Start de ontdekking’ met deze keuze actief. "
-                    "Daarna kun je het overzicht gebruiken."
+                    "Kies het overzicht opnieuw om de aanvullende gegevens op te halen."
                 )
 
             if selected_overview == "Taxonomische samenstelling" and taxonomy_available:
@@ -1896,7 +1853,7 @@ with tab_dashboard:
             checkpoint("DASHBOARD_RENDER_DONE")
 
 st.caption(
-    "Publieksversie 2.2 · Atlas-koppeling v0.33 · analyse start alleen na jouw opdracht."
+    "Publieksversie 2.3 · Atlas-koppeling v0.34 · analyse start automatisch na je keuze."
 )
 
 checkpoint("APP_END")
