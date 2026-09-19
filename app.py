@@ -116,7 +116,31 @@ if "show_area_creator" not in st.session_state:
 if "analysis_key" not in st.session_state:
     st.session_state.analysis_key = None
 
-st.markdown('<span class="release-badge">Publieksversie 2.6</span>', unsafe_allow_html=True)
+def area_geojson(name, geometry):
+    """Return one named area as a portable GeoJSON FeatureCollection."""
+    return json.dumps(
+        {
+            "type": "FeatureCollection",
+            "features": [
+                {
+                    "type": "Feature",
+                    "properties": {"name": name},
+                    "geometry": geometry,
+                }
+            ],
+        },
+        ensure_ascii=False,
+        indent=2,
+    )
+
+
+def area_filename(name):
+    """Create a readable, filesystem-safe GeoJSON filename."""
+    safe = "".join(c if c.isalnum() or c in "-_" else "_" for c in name).strip("_")
+    return f"{safe or 'mijn_gebied'}.geojson"
+
+
+st.markdown('<span class="release-badge">Publieksversie 2.7</span>', unsafe_allow_html=True)
 st.title("🌿 Mijn Biodiversiteit")
 st.caption("Kies een gebied en ontdek direct welke soorten er leven.")
 
@@ -185,6 +209,18 @@ if st.session_state.areas:
             unsafe_allow_html=True,
         )
 
+    active_name = st.session_state.active_area
+    if active_name and active_name in st.session_state.areas:
+        st.download_button(
+            "💾 Actief gebied op schijf bewaren",
+            data=area_geojson(active_name, st.session_state.areas[active_name]),
+            file_name=area_filename(active_name),
+            mime="application/geo+json",
+            key="download_active_area_v38",
+            help="Bewaar het GeoJSON-bestand in Downloads, iCloud Drive, OneDrive of een andere map.",
+        )
+        st.caption("Dit GeoJSON-bestand kun je later bovenaan opnieuw openen via ‘Selecteer gebied’.")
+
 if st.session_state.show_area_creator:
     with st.container(border=True):
         st.subheader("Nieuw gebied maken")
@@ -221,17 +257,35 @@ if st.session_state.show_area_creator:
         drawings = map_state.get("all_drawings") or []
         newest_geom = drawings[-1].get("geometry") if drawings else None
 
-        if st.button("💾 Gebied gebruiken", type="primary", key="save_area_v34"):
-            if not area_name.strip():
+        clean_area_name = area_name.strip()
+        area_is_ready = bool(clean_area_name and newest_geom)
+        use_col, save_col = st.columns(2)
+
+        with use_col:
+            use_area = st.button("✅ Gebied gebruiken", type="primary", key="save_area_v38")
+
+        with save_col:
+            st.download_button(
+                "💾 Gebied op schijf bewaren",
+                data=area_geojson(clean_area_name, newest_geom) if area_is_ready else "",
+                file_name=area_filename(clean_area_name),
+                mime="application/geo+json",
+                key="download_new_area_v38",
+                disabled=not area_is_ready,
+                help="Vul een naam in en teken een gebied; daarna wordt deze downloadknop actief.",
+            )
+
+        if use_area:
+            if not clean_area_name:
                 st.error("Geef het gebied eerst een naam.")
             elif not newest_geom:
                 st.error("Teken eerst een gebied op de kaart.")
             else:
-                st.session_state.areas[area_name.strip()] = newest_geom
-                st.session_state.active_area = area_name.strip()
+                st.session_state.areas[clean_area_name] = newest_geom
+                st.session_state.active_area = clean_area_name
                 st.session_state.show_area_creator = False
                 st.session_state.analysis_key = None
-                checkpoint(f"AREA_SAVED name={area_name.strip()}")
+                checkpoint(f"AREA_SAVED name={clean_area_name}")
                 st.rerun()
 
 @st.cache_data(ttl=1800, show_spinner=False)
@@ -1792,7 +1846,7 @@ with tab_dashboard:
             checkpoint("DASHBOARD_RENDER_DONE")
 
 st.caption(
-    "Publieksversie 2.6 · Atlas-koppeling v0.37 · uitgeklapte meervoudige overzichtskeuze."
+    "Publieksversie 2.7 · Atlas-koppeling v0.38 · gebieden als GeoJSON op schijf bewaren."
 )
 
 checkpoint("APP_END")
