@@ -2,6 +2,15 @@
 
 Publieksvriendelijke versie.
 
+## Waargenomen soorten
+
+De keuze **Waargenomen soorten** toont de soorten in het gekozen gebied en de
+gekozen periode als fotokaarten. De soorten staan op aflopend aantal
+waarnemingen. Op brede schermen staan vier foto's per rij; op smallere schermen
+wordt het raster aangepast. Een kaart opent de soortpagina op iNaturalist.
+Als een waarneming geen foto heeft, wordt de soortfoto gebruikt wanneer die
+beschikbaar is.
+
 ## Nieuw in v0.37
 
 - De onbedoelde foto-upload en daarmee de dubbele knop **Kies gebied** zijn verwijderd.

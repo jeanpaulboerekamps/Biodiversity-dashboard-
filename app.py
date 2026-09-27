@@ -320,6 +320,8 @@ def fetch_observations(params_tuple):
             "preferred_common_name": taxon.get("preferred_common_name"),
             "iconic_taxon_name": taxon.get("iconic_taxon_name"),
             "ancestor_ids": ancestor_ids,
+            "default_photo_url": (taxon.get("default_photo") or {}).get("medium_url")
+            or (taxon.get("default_photo") or {}).get("url"),
         }
         photos = observation.get("photos") or []
         compact_photos = [{"url": photos[0].get("url")}] if photos else []
@@ -632,6 +634,8 @@ def fetch_taxa_by_ids(ids_tuple, locale="nl"):
                         "rank": tx.get("rank"),
                         "name": tx.get("name"),
                         "preferred_common_name": tx.get("preferred_common_name"),
+                        "default_photo_url": (tx.get("default_photo") or {}).get("medium_url")
+                        or (tx.get("default_photo") or {}).get("url"),
                     }
             return compact
         except Exception as e:
@@ -821,6 +825,63 @@ def timeline_html(timeline_df, personal_firsts):
     )
 
 
+def observed_species_html(df):
+    """Toon soorten op aflopend aantal waarnemingen in een fotoraster."""
+    species = df.dropna(subset=["species_id"]).copy()
+    if species.empty:
+        return ""
+
+    def first_text(values):
+        return next((value for value in values if isinstance(value, str) and value.strip()), "")
+
+    summary = (
+        species.groupby("species_id", sort=False)
+        .agg(
+            count=("species_id", "size"),
+            name=("species_nl", first_text),
+            scientific=("species_scientific", first_text),
+            photo=("photo_url", first_text),
+            taxon_photo=("taxon_photo_url", first_text),
+        )
+        .reset_index()
+        .sort_values(["count", "name", "scientific"], ascending=[False, True, True])
+    )
+
+    cards = []
+    for row in summary.itertuples(index=False):
+        name = html.escape(row.name or row.scientific or "Onbekende soort")
+        scientific = html.escape(row.scientific or "")
+        photo = row.photo or row.taxon_photo
+        if isinstance(photo, str) and photo.startswith("https://"):
+            picture = f'<img loading="lazy" src="{html.escape(photo, quote=True)}" alt="{name}">'
+        else:
+            picture = '<div class="species-no-photo">Geen foto beschikbaar</div>'
+        count = f"{row.count} waarneming" if row.count == 1 else f"{row.count} waarnemingen"
+        cards.append(
+            f'<a class="species-card" href="https://www.inaturalist.org/taxa/{int(row.species_id)}" '
+            'target="_blank" rel="noopener noreferrer">'
+            f'{picture}<div class="species-details"><strong>{name}</strong>'
+            f'<em>{scientific}</em><span>{count}</span></div></a>'
+        )
+
+    return (
+        '<style>.species-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));'
+        'gap:16px;margin:14px 0 28px}.species-card{display:block;min-width:0;overflow:hidden;'
+        'border:1px solid rgba(128,128,128,.25);border-radius:14px;background:white;'
+        'color:#173b2b;text-decoration:none;box-shadow:0 2px 8px rgba(0,0,0,.06)}'
+        '.species-card img,.species-no-photo{display:block;width:100%;aspect-ratio:4/3;'
+        'object-fit:cover;background:#eef2ed}.species-no-photo{display:flex;align-items:center;'
+        'justify-content:center;color:#596b60;font-size:.9rem}.species-details{padding:10px 12px 12px}'
+        '.species-details strong,.species-details em,.species-details span{display:block}'
+        '.species-details strong{line-height:1.25}.species-details em{color:#52675b;'
+        'font-size:.85rem;margin-top:3px}.species-details span{font-size:.85rem;'
+        'margin-top:8px;font-weight:600}@media(max-width:800px){.species-grid{'
+        'grid-template-columns:repeat(2,minmax(0,1fr))}}@media(max-width:480px){'
+        '.species-grid{grid-template-columns:1fr}}</style>'
+        '<div class="species-grid">' + ''.join(cards) + '</div>'
+    )
+
+
 def rank_name(taxon_record, wanted_rank, scientific=False):
     if taxon_record.get("rank") == wanted_rank:
         if scientific:
@@ -992,6 +1053,7 @@ with tab_dashboard:
             "Tijdlijn van eerste vondsten": "Tijdlijn nieuwe soorten",
             "Kansrijke nieuwe soorten": "Target soorten",
             "Mijn soorten in de Atlas of Life": "Mijn waarnemingen in Atlas of Life",
+            "Waargenomen soorten": "Waargenomen soorten",
         }
         overview_selected_labels = []
         overview_columns = st.columns(3)
@@ -1009,6 +1071,7 @@ with tab_dashboard:
             "Mijn waarnemingen in Atlas of Life",
             "Tijdlijn nieuwe soorten",
             "Target soorten",
+            "Waargenomen soorten",
         } for choice in overview_choices):
             st.caption(
                 "Dit overzicht gebruikt aanvullende soortgegevens. De eerste analyse kan daarom "
@@ -1179,6 +1242,7 @@ with tab_dashboard:
                         "Mijn waarnemingen in Atlas of Life",
                         "Tijdlijn nieuwe soorten",
                         "Target soorten",
+                        "Waargenomen soorten",
                     } for choice in overview_choices)
 
                     taxon_lookup = {}
@@ -1269,6 +1333,8 @@ with tab_dashboard:
                             "species_scientific": species_scientific,
                             "observation_id": o.get("id"),
                             "photo_url": photo_url,
+                            "taxon_photo_url": species_rec.get("default_photo_url")
+                            or taxon.get("default_photo_url"),
                             "inat_url": (
                                 f"https://www.inaturalist.org/observations/{o.get('id')}"
                                 if o.get("id") else None
@@ -1367,6 +1433,7 @@ with tab_dashboard:
                 "Mijn waarnemingen in Atlas of Life",
                 "Tijdlijn nieuwe soorten",
                 "Target soorten",
+                "Waargenomen soorten",
             } for choice in selected_overviews)
             taxonomy_available = (
                 "orde" in df.columns
@@ -1836,6 +1903,15 @@ with tab_dashboard:
                     .head(30)
                 )
                 st.dataframe(top, use_container_width=True, hide_index=True)
+
+            if "Waargenomen soorten" in selected_overviews and taxonomy_available:
+                st.subheader("Waargenomen soorten")
+                st.caption("Soorten in het gekozen gebied en de gekozen periode, gesorteerd op aantal waarnemingen.")
+                gallery = observed_species_html(df)
+                if gallery:
+                    st.markdown(gallery, unsafe_allow_html=True)
+                else:
+                    st.info("Geen waarnemingen op soortniveau gevonden.")
 
             if meta.get("total", 0) > 10000:
                 st.warning(
