@@ -140,7 +140,7 @@ def area_filename(name):
     return f"{safe or 'mijn_gebied'}.geojson"
 
 
-st.markdown('<span class="release-badge">Versie 0.40</span>', unsafe_allow_html=True)
+st.markdown('<span class="release-badge">Versie 0.41</span>', unsafe_allow_html=True)
 st.title("🌿 Mijn Biodiversiteit")
 st.caption("Kies een gebied en ontdek direct welke soorten er leven.")
 
@@ -328,6 +328,8 @@ def fetch_observations(params_tuple):
         return {
             "id": observation.get("id"),
             "observed_on": observation.get("observed_on"),
+            "time_observed_at": observation.get("time_observed_at"),
+            "quality_grade": observation.get("quality_grade"),
             "geojson": observation.get("geojson"),
             "taxon": compact_taxon,
             "photos": compact_photos,
@@ -521,6 +523,8 @@ def build_target_species_table(
                 "Laatste waarneming Waarneming.nl": None,
                 "iNaturalist-link": f"https://www.inaturalist.org/taxa/{tid}" if tid else "",
                 "Waarneming.nl-link": "",
+                "Soortfoto": (taxon.get("default_photo") or {}).get("medium_url")
+                or (taxon.get("default_photo") or {}).get("url"),
             })
             row["iNaturalist"] += count
 
@@ -550,6 +554,7 @@ def build_target_species_table(
                 "Laatste waarneming Waarneming.nl": None,
                 "iNaturalist-link": "",
                 "Waarneming.nl-link": item.get("species_url") or "",
+                "Soortfoto": None,
             })
             if not row["Nederlandse naam"] or row["Nederlandse naam"] == sci:
                 row["Nederlandse naam"] = item.get("name") or sci
@@ -586,6 +591,7 @@ def build_target_species_table(
         "Laatste waarneming Waarneming.nl",
         "iNaturalist-link",
         "Waarneming.nl-link",
+        "Soortfoto",
     ]
     if not out:
         return pd.DataFrame(columns=cols)
@@ -856,6 +862,7 @@ def observed_species_html(df, taxonomic=False):
             name=("species_nl", first_text),
             scientific=("species_scientific", first_text),
             taxon_photo=("taxon_photo_url", first_text),
+            research_grade=("research_grade", "any"),
             **taxonomy_aggregation,
         )
         .reset_index()
@@ -872,26 +879,24 @@ def observed_species_html(df, taxonomic=False):
 
     cards = []
     for row in summary.itertuples(index=False):
-        name = html.escape(row.name or row.scientific or "Onbekende soort")
-        scientific = html.escape(row.scientific or "")
-        photo = row.taxon_photo
-        if isinstance(photo, str) and photo.startswith("https://"):
-            picture = f'<img loading="lazy" src="{html.escape(photo, quote=True)}" alt="{name}">'
-        else:
-            picture = '<div class="species-no-photo">Geen foto beschikbaar</div>'
         count = f"{row.count} waarneming" if row.count == 1 else f"{row.count} waarnemingen"
-        cards.append(
-            f'<a class="species-card" href="https://www.inaturalist.org/taxa/{int(row.species_id)}" '
-            'target="_blank" rel="noopener noreferrer">'
-            f'{picture}<div class="species-details"><strong>{name}</strong>'
-            f'<em>{scientific}</em><span>{count}</span></div></a>'
-        )
+        cards.append(photo_card_html(
+            row.name, row.scientific, row.taxon_photo,
+            f"https://www.inaturalist.org/taxa/{int(row.species_id)}", count,
+            research_grade=bool(row.research_grade),
+        ))
+    return photo_grid_html(cards)
 
+
+def photo_grid_html(cards):
     return (
         '<style>.species-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));'
         'gap:16px;margin:14px 0 28px}.species-card{display:block;min-width:0;overflow:hidden;'
         'border:1px solid rgba(128,128,128,.25);border-radius:14px;background:white;'
         'color:#173b2b;text-decoration:none;box-shadow:0 2px 8px rgba(0,0,0,.06)}'
+        '.species-picture{position:relative}.species-rg .species-picture{border:4px solid #238636;overflow:hidden}'
+        '.species-first{position:absolute;top:6px;right:8px;color:#ffd600;font-size:2rem;'
+        'line-height:1;text-shadow:0 1px 3px #333}.species-rg-label{color:#238636}'
         '.species-card img,.species-no-photo{display:block;width:100%;aspect-ratio:4/3;'
         'object-fit:cover;background:#eef2ed}.species-no-photo{display:flex;align-items:center;'
         'justify-content:center;color:#596b60;font-size:.9rem}.species-details{padding:10px 12px 12px}'
@@ -903,6 +908,127 @@ def observed_species_html(df, taxonomic=False):
         '.species-grid{grid-template-columns:1fr}}</style>'
         '<div class="species-grid">' + ''.join(cards) + '</div>'
     )
+
+
+def photo_card_html(name, scientific, photo, url, detail, research_grade=False, first=False):
+    name = html.escape(str(name or scientific or "Onbekend"))
+    scientific = html.escape(str(scientific or ""))
+    if isinstance(photo, str) and photo.startswith("https://"):
+        picture = f'<img loading="lazy" src="{html.escape(photo, quote=True)}" alt="{name}">'
+    else:
+        picture = '<div class="species-no-photo">Geen foto beschikbaar</div>'
+    rg_class = " species-rg" if research_grade else ""
+    star = '<span class="species-first" title="Eerste waarneming van deze soort in dit gebied" aria-label="Eerste waarneming in dit gebied">★</span>' if first else ""
+    rg_label = '<span class="species-rg-label">RG · Onderzoekskwaliteit</span>' if research_grade else ""
+    safe_url = html.escape(url, quote=True) if isinstance(url, str) and url.startswith("https://") else "#"
+    return (
+        f'<a class="species-card{rg_class}" href="{safe_url}" target="_blank" rel="noopener noreferrer">'
+        f'<div class="species-picture">{picture}{star}</div>'
+        f'<div class="species-details"><strong>{name}</strong><em>{scientific}</em>'
+        f'<span>{html.escape(str(detail))}</span>{rg_label}</div></a>'
+    )
+
+
+def target_species_html(target_df):
+    cards = []
+    for _, row in target_df.iterrows():
+        count = int(row["Totaal bronwaarnemingen"])
+        cards.append(photo_card_html(
+            row["Nederlandse naam"], row["Wetenschappelijke naam"], row.get("Soortfoto"),
+            row.get("iNaturalist-link") or row.get("Waarneming.nl-link"),
+            f"{count} waarnemingen in de omgeving · {row['Bron']}",
+        ))
+    return photo_grid_html(cards)
+
+
+def recent_observations_html(df, firsts):
+    cards = []
+    for _, row in df.iterrows():
+        sid = int(row["species_id"]) if pd.notna(row["species_id"]) else None
+        first = bool(sid and firsts.get(sid) == row["observation_id"])
+        cards.append(photo_card_html(
+            row.get("Nederlandse naam"), row.get("wetenschappelijke naam"),
+            row.get("photo_url") or row.get("taxon_photo_url"), row.get("inat_url"),
+            pd.Timestamp(row["datum"]).strftime("%d-%m-%Y"), first=first,
+        ))
+    return photo_grid_html(cards)
+
+
+def normalize_group_filter():
+    if not st.session_state.get("species_group_filter_v041"):
+        st.session_state["species_group_filter_v041"] = "Alle"
+
+
+def normalize_month_filter():
+    current = list(st.session_state.get("months_filter_v041", []))
+    previous = st.session_state.get("months_filter_previous", ["Alle"])
+    if "Alle" in current and "Alle" not in previous:
+        current = ["Alle"]
+    elif "Alle" in current and len(current) > 1:
+        current = [value for value in current if value != "Alle"]
+    if not current:
+        current = ["Alle"]
+    st.session_state["months_filter_v041"] = current
+    st.session_state["months_filter_previous"] = current
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def fetch_area_first_observations(geometry_json, species_ids_tuple):
+    """Controleer eerste openbare vondsten, ongeacht gebruiker, maand of kwaliteit.
+
+    Rond de eerste dag wordt doorgezocht, zodat gelijke datums ook over
+    paginagrenzen heen op tijdstip en vervolgens waarnemings-ID worden beslist.
+    Onvolledige zoekresultaten leveren nooit een onbevestigde ster op.
+    """
+    target = {int(value) for value in species_ids_tuple}
+    if not target:
+        return {}, []
+    poly = shape(json.loads(geometry_json))
+    minx, miny, maxx, maxy = poly.bounds
+    candidates = {}
+    last_day = ""
+    exhausted = False
+    for page in range(1, 51):
+        params = {
+            "swlat": miny, "swlng": minx, "nelat": maxy, "nelng": maxx,
+            "taxon_id": ",".join(str(sid) for sid in sorted(target)),
+            "quality_grade": "research,needs_id,casual",
+            "order_by": "observed_on", "order": "asc", "per_page": 200, "page": page,
+        }
+        try:
+            for attempt in range(3):
+                response = requests.get(OBS_API, params=params, timeout=(10, 30))
+                if response.status_code != 429 and response.status_code < 500:
+                    break
+                time.sleep(0.75 * (2 ** attempt))
+            response.raise_for_status()
+            payload = response.json()
+        except requests.RequestException:
+            log.exception("AREA_FIRSTS_FETCH_ERROR")
+            break
+        observations = payload.get("results") or []
+        for observation in observations:
+            day = observation.get("observed_on")
+            oid = observation.get("id")
+            if not day or not oid:
+                continue
+            last_day = max(last_day, day)
+            coords = (observation.get("geojson") or {}).get("coordinates")
+            if not coords or not poly.covers(Point(coords[0], coords[1])):
+                continue
+            matches = target.intersection(extract_ancestor_ids(observation.get("taxon") or {}))
+            timestamp = pd.to_datetime(observation.get("time_observed_at") or day, utc=True, errors="coerce")
+            order_key = (day, timestamp.value if pd.notna(timestamp) else 0, int(oid))
+            for sid in matches:
+                if sid not in candidates or order_key < candidates[sid]:
+                    candidates[sid] = order_key
+        total = int(payload.get("total_results") or 0)
+        exhausted = not observations or len(observations) < 200 or page * 200 >= total
+        if exhausted or (target.issubset(candidates) and last_day > max(value[0] for value in candidates.values())):
+            break
+    firsts = {sid: value[2] for sid, value in candidates.items() if exhausted or value[0] < last_day}
+    return firsts, sorted(target - firsts.keys())
+
 
 
 def rank_name(taxon_record, wanted_rank, scientific=False):
@@ -1077,15 +1203,22 @@ with tab_dashboard:
         }
         month_options = ["Alle", "Januari", "Februari", "Maart", "April", "Mei", "Juni",
                          "Juli", "Augustus", "September", "Oktober", "November", "December"]
-        group_col, month_col = st.columns(2)
-        group_label = group_col.selectbox("Soortgroep", list(group_options), key="species_group_filter")
-        month_label = month_col.selectbox("Maand van het jaar", month_options, key="month_filter")
+        group_label = st.pills(
+            "Soortgroep", list(group_options), default="Alle", selection_mode="single",
+            key="species_group_filter_v041", on_change=normalize_group_filter,
+        ) or "Alle"
+        month_labels = st.pills(
+            "Maanden van het jaar", month_options, default=["Alle"], selection_mode="multi",
+            key="months_filter_v041", on_change=normalize_month_filter,
+        ) or ["Alle"]
         selected_group = group_options[group_label]
-        selected_month = month_options.index(month_label)
+        selected_months = tuple(sorted(month_options.index(label) for label in month_labels if label != "Alle"))
+        month_query = ",".join(str(month) for month in selected_months)
 
         overview_labels = {
             "Waargenomen soorten": "Waargenomen soorten",
             "Waargenomen soorten op taxonomie": "Waargenomen soorten op taxonomie",
+            "Meest recente waarnemingen": "Meest recente waarnemingen",
             "Soortgroepen": "Taxonomische samenstelling",
             "Kaart met concentraties": "Heatmap",
             "Ontwikkeling per jaar": "Per jaar",
@@ -1108,6 +1241,7 @@ with tab_dashboard:
             "Target soorten",
             "Waargenomen soorten",
             "Waargenomen soorten op taxonomie",
+            "Meest recente waarnemingen",
         } for choice in overview_choices):
             st.caption(
                 "Dit overzicht gebruikt aanvullende soortgegevens. De eerste analyse kan daarom "
@@ -1157,7 +1291,7 @@ with tab_dashboard:
                 value=True,
                 key="target_source_inat_pre",
             )
-            filters_active = selected_group is not None or selected_month != 0
+            filters_active = selected_group is not None or bool(selected_months)
             target_use_waarneming = b2.checkbox(
                 "Waarneming.nl",
                 value=False,
@@ -1186,9 +1320,9 @@ with tab_dashboard:
                     ).strip()
 
         analysis_signature = json.dumps({
-            "data_version": 3,
+            "data_version": 4,
             "species_group": selected_group,
-            "month": selected_month,
+            "months": selected_months,
             "area": active,
             "geometry": st.session_state.areas[active],
             "mode": mode,
@@ -1251,8 +1385,8 @@ with tab_dashboard:
 
                 if selected_group:
                     params["iconic_taxa"] = selected_group
-                if selected_month:
-                    params["month"] = selected_month
+                if month_query:
+                    params["month"] = month_query
 
                 if mode == "Mijn waarnemingen" and overview_choices != ["Target soorten"]:
                     params["user_id"] = username.strip()
@@ -1293,6 +1427,7 @@ with tab_dashboard:
                         "Target soorten",
                         "Waargenomen soorten",
                         "Waargenomen soorten op taxonomie",
+                        "Meest recente waarnemingen",
                     } for choice in overview_choices)
 
                     taxon_lookup = {}
@@ -1382,6 +1517,8 @@ with tab_dashboard:
                             "species_en": species_en,
                             "species_scientific": species_scientific,
                             "observation_id": o.get("id"),
+                            "time_observed_at": o.get("time_observed_at"),
+                            "research_grade": o.get("quality_grade") == "research",
                             "photo_url": photo_url,
                             "taxon_photo_url": species_rec.get("default_photo_url")
                             or (taxon.get("default_photo_url") if tid == species_id else None),
@@ -1435,6 +1572,7 @@ with tab_dashboard:
                     df["maand"] = df["datum"].dt.month.astype(int)
                     df["kwartaal"] = df["datum"].dt.quarter.astype(int)
 
+                    st.session_state.recent_page = 1
                     st.session_state.analysis_df = df
                     st.session_state.analysis_meta = {
                         "total": total,
@@ -1485,6 +1623,7 @@ with tab_dashboard:
                 "Target soorten",
                 "Waargenomen soorten",
                 "Waargenomen soorten op taxonomie",
+                "Meest recente waarnemingen",
             } for choice in selected_overviews)
             taxonomy_available = (
                 "orde" in df.columns
@@ -1593,7 +1732,7 @@ with tab_dashboard:
             if "Gemiddeld per kalendermaand" in selected_overviews:
                 st.subheader("Gemiddeld per kalendermaand")
                 years = list(range(meta["start_year"], meta["end_year"] + 1))
-                idx = pd.MultiIndex.from_product([years, [selected_month] if selected_month else range(1, 13)], names=["jaar", "maand"])
+                idx = pd.MultiIndex.from_product([years, selected_months or range(1, 13)], names=["jaar", "maand"])
 
                 obs_month = df.groupby(["jaar", "maand"]).size().reindex(idx, fill_value=0)
                 taxa_month = (
@@ -1872,7 +2011,7 @@ with tab_dashboard:
                                 use_waarneming=effective_waarneming,
                                 waarneming_token=waarneming_token,
                                 iconic_taxa=selected_group,
-                                month=selected_month,
+                                month=month_query,
                             )
                         except Exception as e:
                             target_df = pd.DataFrame()
@@ -1889,17 +2028,7 @@ with tab_dashboard:
                         )
                         c3.metric("Zoekafstand", f"{target_radius} km")
 
-                        st.dataframe(
-                            target_df,
-                            use_container_width=True,
-                            column_config={
-                                "iNaturalist-link": st.column_config.LinkColumn("iNaturalist"),
-                                "Waarneming.nl-link": st.column_config.LinkColumn("Waarneming.nl"),
-                                "Totaal bronwaarnemingen": st.column_config.NumberColumn("Totaal", format="%d"),
-                                "iNaturalist": st.column_config.NumberColumn("iNaturalist", format="%d"),
-                                "Waarneming.nl": st.column_config.NumberColumn("Waarneming.nl", format="%d"),
-                            },
-                        )
+                        st.markdown(target_species_html(target_df), unsafe_allow_html=True)
 
                 st.caption(
                     "Wijzig afstand, periode, minimum of bron hierboven; "
@@ -1913,11 +2042,33 @@ with tab_dashboard:
                     "Gegroepeerd op rijk, stam, klasse, orde, familie en geslacht; binnen elk niveau alfabetisch op wetenschappelijke naam."
                     if taxonomic else "Soorten in het gekozen gebied en de gekozen periode, gesorteerd op aantal waarnemingen."
                 )
+                st.caption("Groene fotorand: minimaal één waarneming met onderzoekskwaliteit (RG) binnen de huidige selectie.")
                 gallery = observed_species_html(df, taxonomic=taxonomic)
                 if gallery:
                     st.markdown(gallery, unsafe_allow_html=True)
                 else:
                     st.info("Geen waarnemingen op soortniveau gevonden.")
+
+            if "Meest recente waarnemingen" in selected_overviews:
+                st.subheader("Meest recente waarnemingen")
+                st.caption("Nieuwste eerst. ★ = eerste openbare iNaturalist-waarneming van deze soort exact binnen dit gebied, over alle jaren, maanden, waarnemers en kwaliteitsniveaus. Bij gelijke datum beslist het tijdstip, daarna het waarnemingsnummer.")
+                recent = df.copy()
+                recent["sort_time"] = pd.to_datetime(recent["time_observed_at"], utc=True, errors="coerce", format="mixed")
+                recent["sort_time"] = recent["sort_time"].fillna(pd.to_datetime(recent["datum"], utc=True))
+                recent = recent.sort_values(["datum", "sort_time", "observation_id"], ascending=False)
+                page_size = 48
+                page_count = max(1, (len(recent) + page_size - 1) // page_size)
+                page = int(st.number_input("Pagina", min_value=1, max_value=page_count, step=1, key="recent_page")) if page_count > 1 else 1
+                page_df = recent.iloc[(page - 1) * page_size:page * page_size]
+                st.caption(f"{(page - 1) * page_size + 1}–{min(page * page_size, len(recent))} van {len(recent)} waarnemingen")
+                ids = tuple(sorted({int(sid) for sid in page_df["species_id"].dropna()}))
+                with st.spinner("Eerste waarnemingen in dit gebied controleren…"):
+                    firsts, unconfirmed = fetch_area_first_observations(
+                        json.dumps(st.session_state.areas[active], sort_keys=True), ids,
+                    )
+                if unconfirmed:
+                    st.info(f"Voor {len(unconfirmed)} soorten kon de eerste waarneming niet volledig worden gecontroleerd. Deze krijgen voorlopig geen ster.")
+                st.markdown(recent_observations_html(page_df, firsts), unsafe_allow_html=True)
 
             if meta.get("total", 0) > 10000:
                 st.warning(
@@ -1928,7 +2079,7 @@ with tab_dashboard:
             checkpoint("DASHBOARD_RENDER_DONE")
 
 st.caption(
-    "Versie 0.40 · Atlas-koppeling v0.38 · gebieden als GeoJSON op schijf bewaren."
+    "Versie 0.41 · Atlas-koppeling v0.38 · gebieden als GeoJSON op schijf bewaren."
 )
 
 checkpoint("APP_END")

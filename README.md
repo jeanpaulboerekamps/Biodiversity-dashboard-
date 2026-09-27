@@ -1,8 +1,26 @@
-# Mijn Biodiversiteit — versie 0.40
+# Mijn Biodiversiteit — versie 0.41
 
 Publieksvriendelijke versie.
 
-## Nieuw in versie 0.40
+## Nieuw in versie 0.41
+
+- Beide filters staan volledig zichtbaar als keuzeknoppen. Eén soortgroep tegelijk,
+  meerdere maanden tegelijk. **Alle** wist de losse maandkeuzes; de laatste maand
+  uitzetten herstelt **Alle**.
+- De eerste twee galerijen hebben een groene fotorand als minimaal één geladen
+  waarneming van de soort onderzoekskwaliteit (RG) heeft binnen de actieve filters.
+- Derde keuze: **Meest recente waarnemingen**, aflopend op datum en tijd, met
+  waarnemingsfoto's en 48 kaarten per pagina.
+- Een gele ster markeert de eerste openbare iNaturalist-waarneming van de soort
+  exact binnen de gebiedsgrens, ongeacht de gekozen periode, maanden, waarnemer of
+  kwaliteit. Bij gelijke datum beslist tijdstip, daarna het laagste waarnemings-ID.
+  Voor ontbrekende tijdstippen wordt middernacht gebruikt. De controle kijkt ook
+  buiten de actieve filters. Bij een onvolledige controle verschijnt geen ster en
+  wordt dit vermeld. Verwijderde of niet-openbare waarnemingen zijn niet te controleren.
+- Kansrijke soorten verschijnen als fotokaarten met de iNaturalist-soortfoto,
+  aantallen en bron. Als geen soortfoto beschikbaar is, wordt dit aangegeven.
+
+## Eerder toegevoegd in versie 0.40
 
 - Filters voor soortgroep en kalendermaand boven het keuzemenu, beide standaard **Alle**.
 - Eén overzicht tegelijk via een keuzerondje.
@@ -116,4 +134,4 @@ Zet de Streamlit-app op public en deel de vaste `*.streamlit.app` URL.
 
 ### GitHub
 Vervang bij deze versie minimaal `app.py` (of upload de volledige projectinhoud).
-Na installatie staat onderaan zichtbaar `Versie 0.40 · Atlas-koppeling v0.38`.
+Na installatie staat onderaan zichtbaar `Versie 0.41 · Atlas-koppeling v0.38`.
