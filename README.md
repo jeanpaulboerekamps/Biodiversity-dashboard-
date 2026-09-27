@@ -1,8 +1,16 @@
-# Mijn Biodiversiteit — versie 0.46
+# Mijn Biodiversiteit — versie 0.47
 
 Publieksvriendelijke versie.
 
-## Nieuw in versie 0.46
+## Nieuw in versie 0.47
+
+- Het ophalen toont voortgang per pagina en wacht niet meer minutenlang zonder
+  terugkoppeling. Een pagina heeft maximaal drie pogingen met kortere time-outs.
+- Elke geslaagde pagina wordt afzonderlijk gecachet. **Opnieuw proberen** haalt
+  na een verbindingsfout alleen nog ontbrekende pagina's op.
+- Er verschijnt nooit een stilzwijgend onvolledige analyse bij een mislukte pagina.
+
+## Eerder toegevoegd in versie 0.46
 
 - Bij tijdelijk wegvallen van de iNaturalist-verbinding probeert de app een
   observatiepagina tot viermaal opnieuw met oplopende wachttijd.
@@ -170,4 +178,4 @@ Zet de Streamlit-app op public en deel de vaste `*.streamlit.app` URL.
 
 ### GitHub
 Vervang bij deze versie minimaal `app.py` (of upload de volledige projectinhoud).
-Na installatie staat onderaan zichtbaar `Versie 0.46 · Atlas-koppeling v0.38`.
+Na installatie staat onderaan zichtbaar `Versie 0.47 · Atlas-koppeling v0.38`.

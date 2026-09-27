@@ -141,7 +141,7 @@ def area_filename(name):
     return f"{safe or 'mijn_gebied'}.geojson"
 
 
-st.markdown('<span class="release-badge">Versie 0.46</span>', unsafe_allow_html=True)
+st.markdown('<span class="release-badge">Versie 0.47</span>', unsafe_allow_html=True)
 st.title("🌿 Mijn Biodiversiteit")
 st.caption("Kies een gebied en ontdek direct welke soorten er leven.")
 
@@ -289,110 +289,109 @@ if st.session_state.show_area_creator:
                 checkpoint(f"AREA_SAVED name={clean_area_name}")
                 st.rerun()
 
-@st.cache_data(ttl=1800, show_spinner=False)
-def fetch_observations(params_tuple):
-    checkpoint("OBS_FETCH_START")
-    params = dict(params_tuple)
-
-    def fetch_page(page):
-        call_params = dict(params)
-        call_params.update(page=page, per_page=200)
-        checkpoint(f"OBS_FETCH_PAGE page={page}")
-        for attempt in range(4):
-            try:
-                r = requests.get(
-                    OBS_API,
-                    params=call_params,
-                    headers={"User-Agent": "Mijn-Biodiversiteit-Streamlit/0.46"},
-                    timeout=(10, 30),
-                )
-                r.raise_for_status()
-                return r.json()
-            except requests.HTTPError as error:
-                # Een ongeldige zoekopdracht verbetert niet door opnieuw te proberen.
-                if error.response is not None and error.response.status_code < 500 \
-                        and error.response.status_code != 429:
-                    raise
-                last_error = error
-            except requests.RequestException as error:
-                # Een afgebroken TLS-verbinding of time-out kan tijdelijk zijn.
-                last_error = error
-            if attempt < 3:
-                checkpoint(f"OBS_FETCH_RETRY page={page} attempt={attempt + 2}")
-                time.sleep(2 ** attempt)
-        raise last_error
-
-    def compact_observation(observation):
-        """Bewaar alleen velden die de analyse werkelijk gebruikt."""
-        def compact_user(user):
-            if not isinstance(user, dict):
-                return None
-            return {
-                "id": user.get("id"),
-                "login": user.get("login"),
-                "name": user.get("name"),
-                "icon_url": user.get("icon_url") or user.get("icon"),
-            }
-
-        taxon = observation.get("taxon") or {}
-        ancestor_ids = list(taxon.get("ancestor_ids") or [])
-        for ancestor in taxon.get("ancestors") or []:
-            ancestor_id = ancestor.get("id") if isinstance(ancestor, dict) else ancestor
-            if ancestor_id and ancestor_id not in ancestor_ids:
-                ancestor_ids.append(ancestor_id)
-        compact_taxon = {
-            "id": taxon.get("id"),
-            "rank": taxon.get("rank"),
-            "name": taxon.get("name"),
-            "preferred_common_name": taxon.get("preferred_common_name"),
-            "iconic_taxon_name": taxon.get("iconic_taxon_name"),
-            "ancestor_ids": ancestor_ids,
-            "default_photo_url": (taxon.get("default_photo") or {}).get("medium_url")
-            or (taxon.get("default_photo") or {}).get("url"),
-        }
-        photos = observation.get("photos") or []
-        compact_photos = [{"url": photos[0].get("url")}] if photos else []
+def compact_observation(observation):
+    """Bewaar alleen velden die de analyse werkelijk gebruikt."""
+    def compact_user(user):
+        if not isinstance(user, dict):
+            return None
         return {
-            "id": observation.get("id"),
-            "observed_on": observation.get("observed_on"),
-            "time_observed_at": observation.get("time_observed_at"),
-            "quality_grade": observation.get("quality_grade"),
-            "geojson": observation.get("geojson"),
-            "taxon": compact_taxon,
-            "photos": compact_photos,
-            "observer": compact_user(observation.get("user")),
-            "identifiers": [
-                compact_user(identification.get("user") or {"id": identification.get("user_id")})
-                for identification in observation.get("identifications") or []
-                if isinstance(identification, dict)
-                and (identification.get("user") or identification.get("user_id"))
-            ],
+            "id": user.get("id"),
+            "login": user.get("login"),
+            "name": user.get("name"),
+            "icon_url": user.get("icon_url") or user.get("icon"),
         }
 
-    first_payload = fetch_page(1)
+    taxon = observation.get("taxon") or {}
+    ancestor_ids = list(taxon.get("ancestor_ids") or [])
+    for ancestor in taxon.get("ancestors") or []:
+        ancestor_id = ancestor.get("id") if isinstance(ancestor, dict) else ancestor
+        if ancestor_id and ancestor_id not in ancestor_ids:
+            ancestor_ids.append(ancestor_id)
+    compact_taxon = {
+        "id": taxon.get("id"),
+        "rank": taxon.get("rank"),
+        "name": taxon.get("name"),
+        "preferred_common_name": taxon.get("preferred_common_name"),
+        "iconic_taxon_name": taxon.get("iconic_taxon_name"),
+        "ancestor_ids": ancestor_ids,
+        "default_photo_url": (taxon.get("default_photo") or {}).get("medium_url")
+        or (taxon.get("default_photo") or {}).get("url"),
+    }
+    photos = observation.get("photos") or []
+    compact_photos = [{"url": photos[0].get("url")}] if photos else []
+    return {
+        "id": observation.get("id"),
+        "observed_on": observation.get("observed_on"),
+        "time_observed_at": observation.get("time_observed_at"),
+        "quality_grade": observation.get("quality_grade"),
+        "geojson": observation.get("geojson"),
+        "taxon": compact_taxon,
+        "photos": compact_photos,
+        "observer": compact_user(observation.get("user")),
+        "identifiers": [
+            compact_user(identification.get("user") or {"id": identification.get("user_id")})
+            for identification in observation.get("identifications") or []
+            if isinstance(identification, dict)
+            and (identification.get("user") or identification.get("user_id"))
+        ],
+    }
+
+
+@st.cache_data(ttl=1800, show_spinner=False)
+def fetch_observation_page(params_tuple, page):
+    """Bewaar succesvolle pagina's afzonderlijk, zodat een herkansing alleen ontbrekende pagina's laadt."""
+    params = dict(params_tuple)
+    params.update(page=page, per_page=200)
+    checkpoint(f"OBS_FETCH_PAGE page={page}")
+    if page > 1:
+        time.sleep(1.05)
+    for attempt in range(3):
+        try:
+            response = requests.get(
+                OBS_API,
+                params=params,
+                headers={"User-Agent": "Mijn-Biodiversiteit-Streamlit/0.47"},
+                timeout=(5, 15),
+            )
+            response.raise_for_status()
+            payload = response.json()
+            return {
+                "total_results": payload.get("total_results", 0),
+                "results": [compact_observation(o) for o in payload.get("results", [])],
+            }
+        except requests.HTTPError as error:
+            if error.response is not None and error.response.status_code < 500 \
+                    and error.response.status_code != 429:
+                raise
+            last_error = error
+        except requests.RequestException as error:
+            last_error = error
+        if attempt < 2:
+            checkpoint(f"OBS_FETCH_RETRY page={page} attempt={attempt + 2}")
+            time.sleep(2 ** attempt)
+    raise last_error
+
+
+def fetch_observations(params_tuple, _progress=None):
+    """Laad volledig of geef een fout; een mislukte pagina wordt nooit stilzwijgend overgeslagen."""
+    checkpoint("OBS_FETCH_START")
+    first_payload = fetch_observation_page(params_tuple, 1)
     total = int(first_payload.get("total_results", 0) or 0)
     checkpoint(f"OBS_FETCH_TOTAL total={total}")
     page_count = min(50, max(1, (min(total, 10000) + 199) // 200))
     pages = {1: first_payload.get("results", [])}
+    if _progress:
+        _progress(1, page_count)
 
-    # iNaturalist vraagt ongeveer één verzoek per seconde. Rustig door de
-    # pagina's lopen voorkomt gelijktijdige belasting en maakt TLS-fouten
-    # minder waarschijnlijk.
-    if page_count > 1:
-        for page in range(2, page_count + 1):
-            time.sleep(1.05)
-            pages[page] = fetch_page(page).get("results", [])
+    for page in range(2, page_count + 1):
+        pages[page] = fetch_observation_page(params_tuple, page).get("results", [])
+        if _progress:
+            _progress(page, page_count)
 
-    rows = [
-        compact_observation(observation)
-        for page in range(1, page_count + 1)
-        for observation in pages.get(page, [])
-    ]
-
+    rows = [observation for page in range(1, page_count + 1)
+            for observation in pages.get(page, [])]
     checkpoint(f"OBS_FETCH_DONE fetched={len(rows)}")
     return rows, total
-
-
 
 
 @st.cache_data(ttl=3600, show_spinner=False)
@@ -1398,7 +1397,7 @@ with tab_dashboard:
                     ).strip()
 
         analysis_signature = json.dumps({
-            "data_version": 5,
+            "data_version": 6,
             "species_group": selected_group,
             "months": selected_months,
             "area": active,
@@ -1479,8 +1478,11 @@ with tab_dashboard:
                     params["quality_grade"] = qp
 
                 with st.status("Analyse uitvoeren…", expanded=True) as status:
-                    st.write("Waarnemingen ophalen…")
-                    raw, total = fetch_observations(tuple(sorted(params.items())))
+                    progress_bar = st.progress(0, text="Waarnemingen ophalen…")
+                    def report_page(page, count):
+                        progress_bar.progress(page / count, text=f"Waarnemingen opgehaald: pagina {page} van {count}")
+                    raw, total = fetch_observations(tuple(sorted(params.items())), _progress=report_page)
+                    progress_bar.empty()
 
                     st.write("Exact binnen het getekende gebied filteren…")
                     inside = []
@@ -1677,10 +1679,12 @@ with tab_dashboard:
 
             except requests.RequestException:
                 log.exception("ANALYSIS_API_CONNECTION_ERROR")
+                status.update(label="Ophalen onderbroken", state="error")
                 st.error(
-                    "De verbinding met iNaturalist viel weg terwijl waarnemingen werden opgehaald. "
-                    "De app heeft het opnieuw geprobeerd. Ververs de pagina om de analyse opnieuw te starten."
+                    "De verbinding met iNaturalist viel weg. Klik op ‘Opnieuw proberen’: "
+                    "al opgehaalde pagina's hoeven niet opnieuw te worden geladen."
                 )
+                st.button("↻ Opnieuw proberen", key="retry_observations")
             except Exception as e:
                 log.exception("ANALYSIS_FATAL")
                 st.error(f"Analyse kon niet worden voltooid: {e}")
@@ -2133,7 +2137,7 @@ with tab_dashboard:
             checkpoint("DASHBOARD_RENDER_DONE")
 
 st.caption(
-    "Versie 0.46 · Atlas-koppeling v0.38 · gebieden als GeoJSON op schijf bewaren."
+    "Versie 0.47 · Atlas-koppeling v0.38 · gebieden als GeoJSON op schijf bewaren."
 )
 
 checkpoint("APP_END")
