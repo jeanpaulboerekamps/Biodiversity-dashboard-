@@ -1,8 +1,12 @@
-# Mijn Biodiversiteit — versie 0.41
+# Mijn Biodiversiteit — versie 0.42
 
 Publieksvriendelijke versie.
 
-## Nieuw in versie 0.41
+## Nieuw in versie 0.42
+
+- De groene RG-rand loopt om de volledige soortkaart, inclusief foto, naam en aantal waarnemingen.
+
+## Eerder toegevoegd in versie 0.41
 
 - Beide filters staan volledig zichtbaar als keuzeknoppen. Eén soortgroep tegelijk,
   meerdere maanden tegelijk. **Alle** wist de losse maandkeuzes; de laatste maand
@@ -134,4 +138,4 @@ Zet de Streamlit-app op public en deel de vaste `*.streamlit.app` URL.
 
 ### GitHub
 Vervang bij deze versie minimaal `app.py` (of upload de volledige projectinhoud).
-Na installatie staat onderaan zichtbaar `Versie 0.41 · Atlas-koppeling v0.38`.
+Na installatie staat onderaan zichtbaar `Versie 0.42 · Atlas-koppeling v0.38`.

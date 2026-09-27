@@ -140,7 +140,7 @@ def area_filename(name):
     return f"{safe or 'mijn_gebied'}.geojson"
 
 
-st.markdown('<span class="release-badge">Versie 0.41</span>', unsafe_allow_html=True)
+st.markdown('<span class="release-badge">Versie 0.42</span>', unsafe_allow_html=True)
 st.title("🌿 Mijn Biodiversiteit")
 st.caption("Kies een gebied en ontdek direct welke soorten er leven.")
 
@@ -894,7 +894,7 @@ def photo_grid_html(cards):
         'gap:16px;margin:14px 0 28px}.species-card{display:block;min-width:0;overflow:hidden;'
         'border:1px solid rgba(128,128,128,.25);border-radius:14px;background:white;'
         'color:#173b2b;text-decoration:none;box-shadow:0 2px 8px rgba(0,0,0,.06)}'
-        '.species-picture{position:relative}.species-rg .species-picture{border:4px solid #238636;overflow:hidden}'
+        '.species-picture{position:relative}.species-card.species-rg{border:4px solid #238636;box-sizing:border-box}'
         '.species-first{position:absolute;top:6px;right:8px;color:#ffd600;font-size:2rem;'
         'line-height:1;text-shadow:0 1px 3px #333}.species-rg-label{color:#238636}'
         '.species-card img,.species-no-photo{display:block;width:100%;aspect-ratio:4/3;'
@@ -2042,7 +2042,7 @@ with tab_dashboard:
                     "Gegroepeerd op rijk, stam, klasse, orde, familie en geslacht; binnen elk niveau alfabetisch op wetenschappelijke naam."
                     if taxonomic else "Soorten in het gekozen gebied en de gekozen periode, gesorteerd op aantal waarnemingen."
                 )
-                st.caption("Groene fotorand: minimaal één waarneming met onderzoekskwaliteit (RG) binnen de huidige selectie.")
+                st.caption("Groene kaartrand: minimaal één waarneming met onderzoekskwaliteit (RG) binnen de huidige selectie.")
                 gallery = observed_species_html(df, taxonomic=taxonomic)
                 if gallery:
                     st.markdown(gallery, unsafe_allow_html=True)
@@ -2079,7 +2079,7 @@ with tab_dashboard:
             checkpoint("DASHBOARD_RENDER_DONE")
 
 st.caption(
-    "Versie 0.41 · Atlas-koppeling v0.38 · gebieden als GeoJSON op schijf bewaren."
+    "Versie 0.42 · Atlas-koppeling v0.38 · gebieden als GeoJSON op schijf bewaren."
 )
 
 checkpoint("APP_END")
