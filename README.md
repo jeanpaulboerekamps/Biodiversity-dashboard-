@@ -1,8 +1,16 @@
-# Mijn Biodiversiteit — versie 0.45
+# Mijn Biodiversiteit — versie 0.46
 
 Publieksvriendelijke versie.
 
-## Nieuw in versie 0.45
+## Nieuw in versie 0.46
+
+- Bij tijdelijk wegvallen van de iNaturalist-verbinding probeert de app een
+  observatiepagina tot viermaal opnieuw met oplopende wachttijd.
+- De pagina's worden rustig achter elkaar opgehaald om de API minder zwaar te
+  belasten. Als de verbinding uitblijft, verschijnt een korte melding zonder
+  technische foutdetails.
+
+## Eerder toegevoegd in versie 0.45
 
 - **Meest recente waarnemingen** toont een groene rand om de hele kaart wanneer
   die afzonderlijke waarneming onderzoekskwaliteit (RG) heeft. De gele ster
@@ -162,4 +170,4 @@ Zet de Streamlit-app op public en deel de vaste `*.streamlit.app` URL.
 
 ### GitHub
 Vervang bij deze versie minimaal `app.py` (of upload de volledige projectinhoud).
-Na installatie staat onderaan zichtbaar `Versie 0.45 · Atlas-koppeling v0.38`.
+Na installatie staat onderaan zichtbaar `Versie 0.46 · Atlas-koppeling v0.38`.

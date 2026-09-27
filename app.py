@@ -141,7 +141,7 @@ def area_filename(name):
     return f"{safe or 'mijn_gebied'}.geojson"
 
 
-st.markdown('<span class="release-badge">Versie 0.45</span>', unsafe_allow_html=True)
+st.markdown('<span class="release-badge">Versie 0.46</span>', unsafe_allow_html=True)
 st.title("🌿 Mijn Biodiversiteit")
 st.caption("Kies een gebied en ontdek direct welke soorten er leven.")
 
@@ -298,13 +298,29 @@ def fetch_observations(params_tuple):
         call_params = dict(params)
         call_params.update(page=page, per_page=200)
         checkpoint(f"OBS_FETCH_PAGE page={page}")
-        for attempt in range(3):
-            r = requests.get(OBS_API, params=call_params, timeout=(10, 30))
-            if r.status_code != 429 and r.status_code < 500:
+        for attempt in range(4):
+            try:
+                r = requests.get(
+                    OBS_API,
+                    params=call_params,
+                    headers={"User-Agent": "Mijn-Biodiversiteit-Streamlit/0.46"},
+                    timeout=(10, 30),
+                )
                 r.raise_for_status()
                 return r.json()
-            time.sleep(0.75 * (2 ** attempt))
-        r.raise_for_status()
+            except requests.HTTPError as error:
+                # Een ongeldige zoekopdracht verbetert niet door opnieuw te proberen.
+                if error.response is not None and error.response.status_code < 500 \
+                        and error.response.status_code != 429:
+                    raise
+                last_error = error
+            except requests.RequestException as error:
+                # Een afgebroken TLS-verbinding of time-out kan tijdelijk zijn.
+                last_error = error
+            if attempt < 3:
+                checkpoint(f"OBS_FETCH_RETRY page={page} attempt={attempt + 2}")
+                time.sleep(2 ** attempt)
+        raise last_error
 
     def compact_observation(observation):
         """Bewaar alleen velden die de analyse werkelijk gebruikt."""
@@ -359,14 +375,13 @@ def fetch_observations(params_tuple):
     page_count = min(50, max(1, (min(total, 10000) + 199) // 200))
     pages = {1: first_payload.get("results", [])}
 
-    # Pagina 1 bepaalt het totaal; de resterende onafhankelijke pagina's mogen
-    # begrensd parallel worden opgehaald. Dit verkort vooral grote eerste runs.
+    # iNaturalist vraagt ongeveer één verzoek per seconde. Rustig door de
+    # pagina's lopen voorkomt gelijktijdige belasting en maakt TLS-fouten
+    # minder waarschijnlijk.
     if page_count > 1:
-        with ThreadPoolExecutor(max_workers=min(4, page_count - 1)) as executor:
-            futures = {executor.submit(fetch_page, page): page for page in range(2, page_count + 1)}
-            for future in as_completed(futures):
-                page = futures[future]
-                pages[page] = future.result().get("results", [])
+        for page in range(2, page_count + 1):
+            time.sleep(1.05)
+            pages[page] = fetch_page(page).get("results", [])
 
     rows = [
         compact_observation(observation)
@@ -1660,6 +1675,12 @@ with tab_dashboard:
                     checkpoint(f"DATAFRAME_READY rows={len(df)}")
                     status.update(label="Analyse gereed", state="complete")
 
+            except requests.RequestException:
+                log.exception("ANALYSIS_API_CONNECTION_ERROR")
+                st.error(
+                    "De verbinding met iNaturalist viel weg terwijl waarnemingen werden opgehaald. "
+                    "De app heeft het opnieuw geprobeerd. Ververs de pagina om de analyse opnieuw te starten."
+                )
             except Exception as e:
                 log.exception("ANALYSIS_FATAL")
                 st.error(f"Analyse kon niet worden voltooid: {e}")
@@ -2112,7 +2133,7 @@ with tab_dashboard:
             checkpoint("DASHBOARD_RENDER_DONE")
 
 st.caption(
-    "Versie 0.45 · Atlas-koppeling v0.38 · gebieden als GeoJSON op schijf bewaren."
+    "Versie 0.46 · Atlas-koppeling v0.38 · gebieden als GeoJSON op schijf bewaren."
 )
 
 checkpoint("APP_END")
