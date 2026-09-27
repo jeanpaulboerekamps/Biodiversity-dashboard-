@@ -141,7 +141,7 @@ def area_filename(name):
     return f"{safe or 'mijn_gebied'}.geojson"
 
 
-st.markdown('<span class="release-badge">Versie 0.43</span>', unsafe_allow_html=True)
+st.markdown('<span class="release-badge">Versie 0.44</span>', unsafe_allow_html=True)
 st.title("🌿 Mijn Biodiversiteit")
 st.caption("Kies een gebied en ontdek direct welke soorten er leven.")
 
@@ -798,63 +798,22 @@ def fetch_personal_first_observations(username, species_ids_tuple):
     return firsts
 
 
-def timeline_html(timeline_df, personal_firsts):
+def timeline_html(timeline_df):
+    """Toon de eerste vondst per soort als fotokaarten, nieuwste eerst."""
     cards = []
-
     for _, row in timeline_df.iterrows():
-        sid = int(row["species_id"]) if pd.notna(row["species_id"]) else None
-        first_info = personal_firsts.get(sid, {}) if sid else {}
-
-        is_personal_first = bool(
-            first_info
-            and first_info.get("observation_id")
-            and int(first_info["observation_id"]) == int(row["observation_id"])
-        )
-
-        border = "#d62728" if is_personal_first else "#2b6cb0"
-        label = "Eerste iNaturalist-waarneming" if is_personal_first else "Nieuw voor dit gebied"
-
-        nl = html.escape(str(row.get("species_nl") or row.get("Nederlandse naam") or "Onbekend"))
-        sci = html.escape(str(row.get("species_scientific") or row.get("wetenschappelijke naam") or ""))
-        date_text = pd.to_datetime(row["datum"]).strftime("%d-%m-%Y")
-        url = html.escape(str(row.get("inat_url") or "#"))
-
-        photo = row.get("photo_url")
-        if isinstance(photo, str) and photo:
-            photo_html = (
-                '<img loading="lazy" src="' + html.escape(photo) + '" '
-                'style="width:156px;height:118px;object-fit:cover;'
-                'border-radius:10px 10px 0 0;display:block;">'
-            )
-        else:
-            photo_html = (
-                '<div style="width:156px;height:118px;border-radius:10px 10px 0 0;'
-                'display:flex;align-items:center;justify-content:center;background:#f1f3f5;'
-                'font-size:13px;color:#666;">Geen foto</div>'
-            )
-
-        card = (
-            '<a href="' + url + '" target="_blank" style="text-decoration:none;color:inherit;">'
-            '<div style="width:156px;min-width:156px;border:4px solid ' + border + ';'
-            'border-radius:14px;background:white;overflow:hidden;'
-            'box-shadow:0 2px 8px rgba(0,0,0,.12);">'
-            + photo_html +
-            '<div style="padding:8px 9px 10px 9px;white-space:normal;">'
-            '<div style="font-weight:700;font-size:13px;line-height:1.2;">' + nl + '</div>'
-            '<div style="font-style:italic;font-size:11px;color:#555;line-height:1.2;margin-top:2px;">' + sci + '</div>'
-            '<div style="font-size:12px;margin-top:7px;font-weight:600;">' + date_text + '</div>'
-            '<div style="font-size:10px;color:' + border + ';margin-top:4px;font-weight:700;">' + label + '</div>'
-            '</div></div></a>'
-        )
-        cards.append(card)
-
-    return (
-        '<div style="overflow-x:auto;overflow-y:hidden;display:flex;gap:14px;'
-        'padding:10px 4px 18px 4px;scroll-snap-type:x proximity;'
-        '-webkit-overflow-scrolling:touch;">'
-        + ''.join(cards) +
-        '</div>'
-    )
+        observer = row.get("observer") or {}
+        observer_name = observer.get("login") or observer.get("name") or "Onbekende waarnemer"
+        date_text = pd.Timestamp(row["datum"]).strftime("%d-%m-%Y")
+        cards.append(photo_card_html(
+            row.get("species_nl") or row.get("Nederlandse naam"),
+            row.get("species_scientific") or row.get("wetenschappelijke naam"),
+            row.get("photo_url") or row.get("taxon_photo_url"),
+            row.get("inat_url"),
+            f"{date_text} · Waarnemer: {observer_name}",
+            research_grade=bool(row.get("research_grade")),
+        ))
+    return photo_grid_html(cards, columns=6)
 
 
 def observed_species_html(df, taxonomic=False):
@@ -906,9 +865,9 @@ def observed_species_html(df, taxonomic=False):
     return photo_grid_html(cards)
 
 
-def photo_grid_html(cards):
+def photo_grid_html(cards, columns=4):
     return (
-        '<style>.species-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));'
+        f'<style>.species-grid{{display:grid;grid-template-columns:repeat({columns},minmax(0,1fr));'
         'gap:16px;margin:14px 0 28px}.species-card{display:block;min-width:0;overflow:hidden;'
         'border:1px solid rgba(128,128,128,.25);border-radius:14px;background:white;'
         'color:#173b2b;text-decoration:none;box-shadow:0 2px 8px rgba(0,0,0,.06)}'
@@ -1320,16 +1279,16 @@ with tab_dashboard:
             "Waargenomen soorten": "Waargenomen soorten",
             "Waargenomen soorten op taxonomie": "Waargenomen soorten op taxonomie",
             "Meest recente waarnemingen": "Meest recente waarnemingen",
+            "Tijdlijn van eerste vondsten": "Tijdlijn nieuwe soorten",
+            "Waarnemers": "Waarnemers",
+            "Identificeerders": "Identifiers",
             "Soortgroepen": "Taxonomische samenstelling",
             "Kaart met concentraties": "Heatmap",
             "Ontwikkeling per jaar": "Per jaar",
             "Seizoenspatroon": "Gemiddeld per kalendermaand",
             "Groei van het aantal soorten": "Cumulatief aantal soorten per kwartaal",
-            "Tijdlijn van eerste vondsten": "Tijdlijn nieuwe soorten",
             "Kansrijke nieuwe soorten": "Target soorten",
             "Mijn soorten in de Atlas of Life": "Mijn waarnemingen in Atlas of Life",
-            "Waarnemers": "Waarnemers",
-            "Identifiers": "Identifiers",
         }
         overview_label = st.radio(
             "Kies een overzicht", list(overview_labels), index=None,
@@ -1982,12 +1941,11 @@ with tab_dashboard:
                 st.plotly_chart(fig_quarter, use_container_width=True)
 
             if "Tijdlijn nieuwe soorten" in selected_overviews and taxonomy_available:
-                st.subheader("Chronologische tijdlijn van nieuwe soorten")
+                st.subheader("Tijdlijn van eerste vondsten")
                 st.caption(
-                    "De kaarten staan op datum van de eerste waarneming van die soort in het gekozen "
-                    "gebied binnen de geselecteerde periode. Blauw = nieuw voor het gebied. "
-                    "Rood = deze waarneming is óók je vroegste iNaturalist-waarneming van die soort. "
-                    "Tik op een kaart om de oorspronkelijke iNaturalist-waarneming te openen."
+                    "De eerste waarneming per soort binnen het gekozen gebied en de geselecteerde periode, "
+                    "van nieuw naar oud. Datum en waarnemer staan op de kaart; een groene rand betekent "
+                    "onderzoekskwaliteit (RG)."
                 )
 
                 timeline = (
@@ -1997,58 +1955,13 @@ with tab_dashboard:
                     .copy()
                 )
                 timeline["species_id"] = timeline["species_id"].astype(int)
-                # Meest recente nieuwe soort eerst; daarna terug in de tijd scrollen.
+                # Meest recente nieuwe soort eerst.
                 timeline = timeline.sort_values(
                     ["datum", "species_nl"],
                     ascending=[False, True],
                 )
 
-                timeline_key = (
-                    meta.get("username"),
-                    tuple(timeline["species_id"].tolist()),
-                )
-
-                if meta.get("mode") == "Mijn waarnemingen":
-                    if st.session_state.timeline_key != timeline_key:
-                        st.info(
-                            "Voor de rode omlijning moet de app éénmalig je vroegste iNaturalist-"
-                            "waarneming voor deze soorten bepalen. Dit resultaat wordt daarna gecachet."
-                        )
-                        if st.button(
-                            "🔎 Bepaal mijn eerste iNaturalist-waarnemingen",
-                            key="build_lifelist_timeline",
-                        ):
-                            with st.spinner("Persoonlijke eerste waarnemingen bepalen…"):
-                                st.session_state.timeline_firsts = fetch_personal_first_observations(
-                                    meta.get("username") or "",
-                                    tuple(timeline["species_id"].tolist()),
-                                )
-                                st.session_state.timeline_key = timeline_key
-                            st.rerun()
-
-                    personal_firsts = (
-                        st.session_state.timeline_firsts
-                        if st.session_state.timeline_key == timeline_key
-                        else {}
-                    )
-                else:
-                    personal_firsts = {}
-                    st.info(
-                        "De rode omlijning is alleen beschikbaar wanneer je analyseert met "
-                        "‘Mijn waarnemingen’. In ‘Alle waarnemers’ wordt de tijdlijn blauw weergegeven."
-                    )
-
-                st.markdown(
-                    '<div style="font-size:12px;margin-bottom:4px;">'
-                    '<span style="display:inline-block;width:12px;height:12px;border:3px solid #2b6cb0;'
-                    'border-radius:3px;vertical-align:-2px;margin-right:5px;"></span>Nieuw voor gebied&nbsp;&nbsp;&nbsp;'
-                    '<span style="display:inline-block;width:12px;height:12px;border:3px solid #d62728;'
-                    'border-radius:3px;vertical-align:-2px;margin-right:5px;"></span>Eerste persoonlijke iNaturalist-waarneming'
-                    '</div>',
-                    unsafe_allow_html=True,
-                )
-
-                st.markdown(timeline_html(timeline, personal_firsts), unsafe_allow_html=True)
+                st.markdown(timeline_html(timeline), unsafe_allow_html=True)
 
             if "Target soorten" in selected_overviews and taxonomy_available:
                 st.subheader("Target soorten")
@@ -2177,7 +2090,7 @@ with tab_dashboard:
 
             if selected_overviews & {"Waarnemers", "Identifiers"}:
                 is_identifier_view = "Identifiers" in selected_overviews
-                st.subheader("Identifiers" if is_identifier_view else "Waarnemers")
+                st.subheader("Identificeerders" if is_identifier_view else "Waarnemers")
                 st.caption(
                     "Iedere persoon telt per waarneming eenmaal mee; identificaties van de waarnemer zelf tellen niet mee."
                     if is_identifier_view else
@@ -2198,7 +2111,7 @@ with tab_dashboard:
             checkpoint("DASHBOARD_RENDER_DONE")
 
 st.caption(
-    "Versie 0.43 · Atlas-koppeling v0.38 · gebieden als GeoJSON op schijf bewaren."
+    "Versie 0.44 · Atlas-koppeling v0.38 · gebieden als GeoJSON op schijf bewaren."
 )
 
 checkpoint("APP_END")
