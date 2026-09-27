@@ -140,7 +140,7 @@ def area_filename(name):
     return f"{safe or 'mijn_gebied'}.geojson"
 
 
-st.markdown('<span class="release-badge">Versie 0.39</span>', unsafe_allow_html=True)
+st.markdown('<span class="release-badge">Versie 0.40</span>', unsafe_allow_html=True)
 st.title("🌿 Mijn Biodiversiteit")
 st.caption("Kies een gebied en ontdek direct welke soorten er leven.")
 
@@ -361,7 +361,7 @@ def fetch_observations(params_tuple):
 
 
 @st.cache_data(ttl=3600, show_spinner=False)
-def fetch_species_counts_around(lat, lng, radius_km, start_date, end_date, quality_grade):
+def fetch_species_counts_around(lat, lng, radius_km, start_date, end_date, quality_grade, iconic_taxa=None, month=0):
     """Geaggregeerde iNaturalist-soortenlijst rond een punt."""
     rows = []
     page = 1
@@ -380,6 +380,10 @@ def fetch_species_counts_around(lat, lng, radius_km, start_date, end_date, quali
         }
         if quality_grade:
             params["quality_grade"] = quality_grade
+        if iconic_taxa:
+            params["iconic_taxa"] = iconic_taxa
+        if month:
+            params["month"] = month
 
         checkpoint(f"TARGET_INAT_COUNTS_PAGE page={page}")
         r = requests.get(SPECIES_COUNTS_API, params=params, timeout=(10, 45))
@@ -458,6 +462,8 @@ def build_target_species_table(
     use_inat=True,
     use_waarneming=False,
     waarneming_token="",
+    iconic_taxa=None,
+    month=0,
 ):
     """
     Combineer targetsoorten uit iNaturalist en (optioneel) Waarneming.nl.
@@ -490,6 +496,8 @@ def build_target_species_table(
             start_date,
             end_date,
             quality_grade,
+            iconic_taxa=iconic_taxa,
+            month=month,
         )
         for item in counts:
             taxon = item.get("taxon") or {}
@@ -825,8 +833,8 @@ def timeline_html(timeline_df, personal_firsts):
     )
 
 
-def observed_species_html(df):
-    """Toon soorten op aflopend aantal waarnemingen in een fotoraster."""
+def observed_species_html(df, taxonomic=False):
+    """Toon soorten op aantal of taxonomische hiërarchie in een fotoraster."""
     species = df.dropna(subset=["species_id"]).copy()
     if species.empty:
         return ""
@@ -834,6 +842,13 @@ def observed_species_html(df):
     def first_text(values):
         return next((value for value in values if isinstance(value, str) and value.strip()), "")
 
+    taxonomy_columns = [
+        "kingdom_scientific", "phylum_scientific", "class_scientific",
+        "orde_wetenschappelijk", "family_scientific", "genus_scientific",
+    ]
+    taxonomy_aggregation = {
+        column: (column, first_text) for column in taxonomy_columns
+    } if taxonomic else {}
     summary = (
         species.groupby("species_id", sort=False)
         .agg(
@@ -841,10 +856,19 @@ def observed_species_html(df):
             name=("species_nl", first_text),
             scientific=("species_scientific", first_text),
             taxon_photo=("taxon_photo_url", first_text),
+            **taxonomy_aggregation,
         )
         .reset_index()
         .sort_values(["count", "name", "scientific"], ascending=[False, True, True])
     )
+
+    if taxonomic:
+        summary = summary.sort_values(
+            taxonomy_columns + ["scientific", "species_id"],
+            key=lambda values: values.map(
+                lambda value: value.casefold() if isinstance(value, str) and value else "\uffff"
+            ) if values.dtype == object else values,
+        )
 
     cards = []
     for row in summary.itertuples(index=False):
@@ -1042,8 +1066,26 @@ with tab_dashboard:
         # eerder geteste uitzonderingen (zoals Target soorten) ongewijzigd werken.
         mode = "Mijn waarnemingen" if mode == "Alleen mijn waarnemingen" else "Alle waarnemers"
 
+        group_options = {
+            "Alle": None, "Vogels": "Aves", "Zoogdieren": "Mammalia",
+            "Reptielen": "Reptilia", "Amfibieën": "Amphibia",
+            "Straalvinnige vissen": "Actinopterygii", "Insecten": "Insecta",
+            "Spinachtigen": "Arachnida", "Weekdieren": "Mollusca",
+            "Overige dieren": "Animalia", "Planten": "Plantae",
+            "Schimmels": "Fungi", "Chromista": "Chromista",
+            "Protozoa": "Protozoa", "Onbekend": "unknown",
+        }
+        month_options = ["Alle", "Januari", "Februari", "Maart", "April", "Mei", "Juni",
+                         "Juli", "Augustus", "September", "Oktober", "November", "December"]
+        group_col, month_col = st.columns(2)
+        group_label = group_col.selectbox("Soortgroep", list(group_options), key="species_group_filter")
+        month_label = month_col.selectbox("Maand van het jaar", month_options, key="month_filter")
+        selected_group = group_options[group_label]
+        selected_month = month_options.index(month_label)
+
         overview_labels = {
             "Waargenomen soorten": "Waargenomen soorten",
+            "Waargenomen soorten op taxonomie": "Waargenomen soorten op taxonomie",
             "Soortgroepen": "Taxonomische samenstelling",
             "Kaart met concentraties": "Heatmap",
             "Ontwikkeling per jaar": "Per jaar",
@@ -1053,16 +1095,11 @@ with tab_dashboard:
             "Kansrijke nieuwe soorten": "Target soorten",
             "Mijn soorten in de Atlas of Life": "Mijn waarnemingen in Atlas of Life",
         }
-        overview_selected_labels = []
-        overview_columns = st.columns(3)
-        for index, label in enumerate(overview_labels):
-            if overview_columns[index % 3].checkbox(
-                label,
-                value=False,
-                key=f"overview_public_{label}",
-            ):
-                overview_selected_labels.append(label)
-        overview_choices = [overview_labels[label] for label in overview_selected_labels]
+        overview_label = st.radio(
+            "Kies een overzicht", list(overview_labels), index=None,
+            key="overview_single_v040",
+        )
+        overview_choices = [overview_labels[overview_label]] if overview_label else []
 
         if any(choice in {
             "Taxonomische samenstelling",
@@ -1070,6 +1107,7 @@ with tab_dashboard:
             "Tijdlijn nieuwe soorten",
             "Target soorten",
             "Waargenomen soorten",
+            "Waargenomen soorten op taxonomie",
         } for choice in overview_choices):
             st.caption(
                 "Dit overzicht gebruikt aanvullende soortgegevens. De eerste analyse kan daarom "
@@ -1119,11 +1157,16 @@ with tab_dashboard:
                 value=True,
                 key="target_source_inat_pre",
             )
+            filters_active = selected_group is not None or selected_month != 0
             target_use_waarneming = b2.checkbox(
                 "Waarneming.nl",
                 value=False,
                 key="target_source_waarneming_pre",
+                disabled=filters_active,
             )
+            if filters_active:
+                target_use_waarneming = False
+                st.caption("Met een soortgroep- of maandfilter worden kansrijke soorten alleen via iNaturalist gezocht.")
 
             if target_use_waarneming:
                 if target_waarneming_token:
@@ -1143,7 +1186,9 @@ with tab_dashboard:
                     ).strip()
 
         analysis_signature = json.dumps({
-            "data_version": 2,
+            "data_version": 3,
+            "species_group": selected_group,
+            "month": selected_month,
             "area": active,
             "geometry": st.session_state.areas[active],
             "mode": mode,
@@ -1161,7 +1206,7 @@ with tab_dashboard:
         should_analyze = bool(overview_choices) and st.session_state.analysis_key != analysis_signature
 
         if not overview_choices:
-            st.info("Kies hierboven een of meer overzichten. De analyse start daarna vanzelf.")
+            st.info("Kies hierboven één overzicht. De analyse start daarna vanzelf.")
 
         if should_analyze:
             # Persoonlijke overzichten hebben een iNaturalist-gebruikersnaam nodig.
@@ -1204,6 +1249,11 @@ with tab_dashboard:
                     "preferred_place_id": 7506,
                 }
 
+                if selected_group:
+                    params["iconic_taxa"] = selected_group
+                if selected_month:
+                    params["month"] = selected_month
+
                 if mode == "Mijn waarnemingen" and overview_choices != ["Target soorten"]:
                     params["user_id"] = username.strip()
 
@@ -1242,6 +1292,7 @@ with tab_dashboard:
                         "Tijdlijn nieuwe soorten",
                         "Target soorten",
                         "Waargenomen soorten",
+                        "Waargenomen soorten op taxonomie",
                     } for choice in overview_choices)
 
                     taxon_lookup = {}
@@ -1433,6 +1484,7 @@ with tab_dashboard:
                 "Tijdlijn nieuwe soorten",
                 "Target soorten",
                 "Waargenomen soorten",
+                "Waargenomen soorten op taxonomie",
             } for choice in selected_overviews)
             taxonomy_available = (
                 "orde" in df.columns
@@ -1448,15 +1500,16 @@ with tab_dashboard:
                     "Kies het overzicht opnieuw om de aanvullende gegevens op te halen."
                 )
 
-            if "Taxonomische samenstelling" in selected_overviews and taxonomy_available:
-                st.subheader("Samenstelling per soortgroep")
-                group_counts = (
-                    df["soortgroep"].fillna("Onbekend")
-                    .value_counts()
-                    .rename_axis("soortgroep")
-                    .reset_index(name="waarnemingen")
-                )
-                pie_chart(group_counts, "soortgroep", "waarnemingen", "Waarnemingen per soortgroep")
+            if "Taxonomische samenstelling" in selected_overviews:
+                level = "soortgroep" if selected_group is None else "orde"
+                title = "Waarnemingen per soortgroep" if selected_group is None else f"{group_label} per orde"
+                st.subheader(title)
+                labels = df[level].fillna("Onbekende orde" if selected_group else "Onbekend")
+                if selected_group is None:
+                    group_names = {value: label for label, value in group_options.items() if value}
+                    labels = labels.map(lambda value: group_names.get(value, value))
+                counts = labels.value_counts().rename_axis(level).reset_index(name="waarnemingen")
+                pie_chart(counts, level, "waarnemingen", title)
 
             if "Mijn waarnemingen in Atlas of Life" in selected_overviews and taxonomy_available:
                 st.subheader("Mijn waarnemingen in Atlas of Life")
@@ -1466,44 +1519,6 @@ with tab_dashboard:
                     "van deze soortpunten bij elkaar liggen; taxonomie speelt daarin geen rol."
                 )
                 render_personal_atlas(df)
-
-            if "Taxonomische samenstelling" in selected_overviews and taxonomy_available:
-                insects = df[df["soortgroep"].eq("Insecta")].copy()
-
-                if not insects.empty:
-                    unknown_order_pct = insects["orde"].isna().mean() * 100
-                    unknown_family_pct = insects["familie"].isna().mean() * 100
-                    checkpoint(
-                        f"TAXONOMY_QUALITY insects={len(insects)} "
-                        f"unknown_order_pct={unknown_order_pct:.1f} "
-                        f"unknown_family_pct={unknown_family_pct:.1f}"
-                    )
-                    if unknown_order_pct > 20:
-                        st.warning(
-                            f"Taxonomische controle: {unknown_order_pct:.1f}% van de insectwaarnemingen "
-                            "heeft nog geen herkende orde. Dit wordt ook in de Streamlit-log geregistreerd."
-                        )
-                    st.subheader("Insecten per orde")
-                    order_counts = (
-                        insects["orde"].fillna("Onbekende orde")
-                        .value_counts()
-                        .rename_axis("orde")
-                        .reset_index(name="waarnemingen")
-                    )
-                    pie_chart(order_counts, "orde", "waarnemingen", "Insecten uitgesplitst naar orde")
-
-                    leps = insects[insects["orde_wetenschappelijk"].eq("Lepidoptera")].copy()
-
-                    if not leps.empty:
-                        st.subheader("Vlinders per familie")
-                        fam_counts = (
-                            leps["familie"].fillna("Onbekende familie")
-                            .value_counts()
-                            .rename_axis("familie")
-                            .reset_index(name="waarnemingen")
-                        )
-                        pie_chart(fam_counts, "familie", "waarnemingen", "Vlinders uitgesplitst naar familie")
-
 
             if "Heatmap" in selected_overviews:
                 st.subheader("Heatmap van waarnemingen")
@@ -1578,7 +1593,7 @@ with tab_dashboard:
             if "Gemiddeld per kalendermaand" in selected_overviews:
                 st.subheader("Gemiddeld per kalendermaand")
                 years = list(range(meta["start_year"], meta["end_year"] + 1))
-                idx = pd.MultiIndex.from_product([years, range(1, 13)], names=["jaar", "maand"])
+                idx = pd.MultiIndex.from_product([years, [selected_month] if selected_month else range(1, 13)], names=["jaar", "maand"])
 
                 obs_month = df.groupby(["jaar", "maand"]).size().reindex(idx, fill_value=0)
                 taxa_month = (
@@ -1856,6 +1871,8 @@ with tab_dashboard:
                                 use_inat=use_inat,
                                 use_waarneming=effective_waarneming,
                                 waarneming_token=waarneming_token,
+                                iconic_taxa=selected_group,
+                                month=selected_month,
                             )
                         except Exception as e:
                             target_df = pd.DataFrame()
@@ -1889,10 +1906,14 @@ with tab_dashboard:
                     "de analyse wordt daarna automatisch vernieuwd."
                 )
 
-            if "Waargenomen soorten" in selected_overviews and taxonomy_available:
-                st.subheader("Waargenomen soorten")
-                st.caption("Soorten in het gekozen gebied en de gekozen periode, gesorteerd op aantal waarnemingen.")
-                gallery = observed_species_html(df)
+            if selected_overviews & {"Waargenomen soorten", "Waargenomen soorten op taxonomie"}:
+                taxonomic = "Waargenomen soorten op taxonomie" in selected_overviews
+                st.subheader("Waargenomen soorten op taxonomie" if taxonomic else "Waargenomen soorten")
+                st.caption(
+                    "Gegroepeerd op rijk, stam, klasse, orde, familie en geslacht; binnen elk niveau alfabetisch op wetenschappelijke naam."
+                    if taxonomic else "Soorten in het gekozen gebied en de gekozen periode, gesorteerd op aantal waarnemingen."
+                )
+                gallery = observed_species_html(df, taxonomic=taxonomic)
                 if gallery:
                     st.markdown(gallery, unsafe_allow_html=True)
                 else:
@@ -1907,7 +1928,7 @@ with tab_dashboard:
             checkpoint("DASHBOARD_RENDER_DONE")
 
 st.caption(
-    "Versie 0.39 · Atlas-koppeling v0.38 · gebieden als GeoJSON op schijf bewaren."
+    "Versie 0.40 · Atlas-koppeling v0.38 · gebieden als GeoJSON op schijf bewaren."
 )
 
 checkpoint("APP_END")

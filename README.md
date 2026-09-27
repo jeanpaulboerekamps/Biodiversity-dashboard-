@@ -1,8 +1,18 @@
-# Mijn Biodiversiteit — versie 0.39
+# Mijn Biodiversiteit — versie 0.40
 
 Publieksvriendelijke versie.
 
-## Nieuw in versie 0.39 — Waargenomen soorten
+## Nieuw in versie 0.40
+
+- Filters voor soortgroep en kalendermaand boven het keuzemenu, beide standaard **Alle**.
+- Eén overzicht tegelijk via een keuzerondje.
+- Tweede keuze: **Waargenomen soorten op taxonomie**, gerangschikt op rijk, stam,
+  klasse, orde, familie, geslacht en soort; binnen elk niveau alfabetisch.
+- Het taartdiagram toont soortgroepen bij **Alle**, of ordes binnen de gekozen soortgroep.
+- De filters gelden ook voor de iNaturalist-zoekopdracht naar kansrijke soorten.
+  Waarneming.nl is bij actieve filters niet beschikbaar.
+
+## Fotogalerij
 
 De keuze **Waargenomen soorten** staat bovenaan en toont de soorten in het gekozen gebied en de
 gekozen periode als fotokaarten. De soorten staan op aflopend aantal
@@ -106,4 +116,4 @@ Zet de Streamlit-app op public en deel de vaste `*.streamlit.app` URL.
 
 ### GitHub
 Vervang bij deze versie minimaal `app.py` (of upload de volledige projectinhoud).
-Na installatie staat onderaan zichtbaar `Versie 0.39 · Atlas-koppeling v0.38`.
+Na installatie staat onderaan zichtbaar `Versie 0.40 · Atlas-koppeling v0.38`.
