@@ -1,8 +1,19 @@
-# Mijn Biodiversiteit — versie 0.42
+# Mijn Biodiversiteit — versie 0.43
 
 Publieksvriendelijke versie.
 
-## Nieuw in versie 0.42
+## Nieuw in versie 0.43
+
+- **Waarnemers** en **Identifiers** staan als aparte overzichten in het keuzemenu.
+- Profielkaarten tonen de iNaturalist-profielfoto en staan op brede schermen met
+  acht kaarten naast elkaar. De rangschikking loopt af op aantal waarnemingen.
+- Een identifier telt eenmaal per waarneming als die een identificatie heeft
+  toegevoegd en niet de waarnemer zelf is. Meerdere identificaties van dezelfde
+  persoon op één waarneming tellen niet dubbel.
+- De bestaande gebieds-, jaar-, maand-, soortgroep- en kwaliteitsfilters blijven
+  ook op deze twee overzichten van toepassing.
+
+## Eerder toegevoegd in versie 0.42
 
 - De groene RG-rand loopt om de volledige soortkaart, inclusief foto, naam en aantal waarnemingen.
 
@@ -138,4 +149,4 @@ Zet de Streamlit-app op public en deel de vaste `*.streamlit.app` URL.
 
 ### GitHub
 Vervang bij deze versie minimaal `app.py` (of upload de volledige projectinhoud).
-Na installatie staat onderaan zichtbaar `Versie 0.42 · Atlas-koppeling v0.38`.
+Na installatie staat onderaan zichtbaar `Versie 0.43 · Atlas-koppeling v0.38`.

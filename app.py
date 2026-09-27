@@ -6,6 +6,7 @@ import logging
 from pathlib import Path
 import sys
 import time
+from urllib.parse import quote
 
 import folium
 import pandas as pd
@@ -140,7 +141,7 @@ def area_filename(name):
     return f"{safe or 'mijn_gebied'}.geojson"
 
 
-st.markdown('<span class="release-badge">Versie 0.42</span>', unsafe_allow_html=True)
+st.markdown('<span class="release-badge">Versie 0.43</span>', unsafe_allow_html=True)
 st.title("🌿 Mijn Biodiversiteit")
 st.caption("Kies een gebied en ontdek direct welke soorten er leven.")
 
@@ -307,6 +308,16 @@ def fetch_observations(params_tuple):
 
     def compact_observation(observation):
         """Bewaar alleen velden die de analyse werkelijk gebruikt."""
+        def compact_user(user):
+            if not isinstance(user, dict):
+                return None
+            return {
+                "id": user.get("id"),
+                "login": user.get("login"),
+                "name": user.get("name"),
+                "icon_url": user.get("icon_url") or user.get("icon"),
+            }
+
         taxon = observation.get("taxon") or {}
         ancestor_ids = list(taxon.get("ancestor_ids") or [])
         for ancestor in taxon.get("ancestors") or []:
@@ -333,6 +344,13 @@ def fetch_observations(params_tuple):
             "geojson": observation.get("geojson"),
             "taxon": compact_taxon,
             "photos": compact_photos,
+            "observer": compact_user(observation.get("user")),
+            "identifiers": [
+                compact_user(identification.get("user") or {"id": identification.get("user_id")})
+                for identification in observation.get("identifications") or []
+                if isinstance(identification, dict)
+                and (identification.get("user") or identification.get("user_id"))
+            ],
         }
 
     first_payload = fetch_page(1)
@@ -910,6 +928,89 @@ def photo_grid_html(cards):
     )
 
 
+def ranked_people(df, identifiers=False):
+    """Tel per persoon unieke waarnemingen binnen de huidige selectie."""
+    people = {}
+
+    def key_for(user):
+        if not isinstance(user, dict):
+            return None
+        if user.get("id") is not None:
+            return ("id", int(user["id"]))
+        login = str(user.get("login") or "").strip()
+        return ("login", login.casefold()) if login else None
+
+    for _, row in df.iterrows():
+        observer = row.get("observer")
+        observer_key = key_for(observer)
+        observer_login = str((observer or {}).get("login") or "").casefold()
+        candidates = (row.get("identifiers") or []) if identifiers else [observer]
+        seen_on_observation = set()
+        for user in candidates:
+            key = key_for(user)
+            if not key or key in seen_on_observation:
+                continue
+            if identifiers and (
+                key == observer_key
+                or observer_login and str(user.get("login") or "").casefold() == observer_login
+            ):
+                continue
+            seen_on_observation.add(key)
+            record = people.setdefault(key, {"count": 0, "id": user.get("id"), "login": "", "name": "", "icon_url": ""})
+            record["count"] += 1
+            for field in ("login", "name", "icon_url"):
+                if not record[field] and user.get(field):
+                    record[field] = user[field]
+            if not record["login"]:
+                record["login"] = f"Gebruiker {key[1]}"
+    return sorted(people.values(), key=lambda person: (-person["count"], person["login"].casefold()))
+
+
+def people_html(people, identifiers=False):
+    cards = []
+    for person in people:
+        login = str(person["login"])
+        name = html.escape(login)
+        real_name = html.escape(str(person["name"] or ""))
+        photo = person["icon_url"]
+        if isinstance(photo, str) and photo.startswith("http://") and (
+            photo.startswith("http://static.inaturalist.org/")
+            or photo.startswith("http://www.inaturalist.org/")
+        ):
+            photo = "https://" + photo[7:]
+        if isinstance(photo, str) and photo.startswith("https://"):
+            picture = f'<img loading="lazy" src="{html.escape(photo, quote=True)}" alt="Profielfoto van {name}">'
+        else:
+            picture = '<div class="person-no-photo" aria-label="Geen profielfoto">👤</div>'
+        count = int(person["count"])
+        unit = "waarneming geïdentificeerd" if identifiers else "waarneming"
+        if count != 1:
+            unit = "waarnemingen geïdentificeerd" if identifiers else "waarnemingen"
+        profile = login if not login.startswith("Gebruiker ") else str(person.get("id") or login)
+        url = "https://www.inaturalist.org/people/" + quote(profile, safe="")
+        cards.append(
+            f'<a class="person-card" href="{html.escape(url, quote=True)}" target="_blank" rel="noopener noreferrer">'
+            f'<div class="person-avatar">{picture}</div>'
+            f'<strong>{name}</strong><small>{real_name}</small><span>{count} {unit}</span></a>'
+        )
+    return (
+        '<style>.people-grid{display:grid;grid-template-columns:repeat(8,minmax(0,1fr));'
+        'gap:12px;margin:14px 0 28px}.person-card{min-width:0;text-align:center;'
+        'border:1px solid rgba(128,128,128,.25);border-radius:14px;padding:12px 6px;'
+        'background:white;color:#173b2b;text-decoration:none;overflow:hidden}'
+        '.person-avatar{width:72px;height:72px;margin:0 auto 9px;border-radius:50%;'
+        'overflow:hidden;background:#eef2ed}.person-avatar img,.person-no-photo{'
+        'display:flex;width:100%;height:100%;object-fit:cover;align-items:center;'
+        'justify-content:center;font-size:2rem}.person-card strong,.person-card small,'
+        '.person-card span{display:block;overflow-wrap:anywhere}.person-card strong{font-size:.82rem}'
+        '.person-card small{font-size:.72rem;color:#52675b;margin-top:3px}'
+        '.person-card span{font-size:.75rem;margin-top:8px;font-weight:600}'
+        '@media(max-width:900px){.people-grid{grid-template-columns:repeat(4,minmax(0,1fr))}}'
+        '@media(max-width:500px){.people-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}'
+        '</style><div class="people-grid">' + ''.join(cards) + '</div>'
+    )
+
+
 def photo_card_html(name, scientific, photo, url, detail, research_grade=False, first=False):
     name = html.escape(str(name or scientific or "Onbekend"))
     scientific = html.escape(str(scientific or ""))
@@ -1227,6 +1328,8 @@ with tab_dashboard:
             "Tijdlijn van eerste vondsten": "Tijdlijn nieuwe soorten",
             "Kansrijke nieuwe soorten": "Target soorten",
             "Mijn soorten in de Atlas of Life": "Mijn waarnemingen in Atlas of Life",
+            "Waarnemers": "Waarnemers",
+            "Identifiers": "Identifiers",
         }
         overview_label = st.radio(
             "Kies een overzicht", list(overview_labels), index=None,
@@ -1320,7 +1423,7 @@ with tab_dashboard:
                     ).strip()
 
         analysis_signature = json.dumps({
-            "data_version": 4,
+            "data_version": 5,
             "species_group": selected_group,
             "months": selected_months,
             "area": active,
@@ -1517,6 +1620,8 @@ with tab_dashboard:
                             "species_en": species_en,
                             "species_scientific": species_scientific,
                             "observation_id": o.get("id"),
+                            "observer": o.get("observer"),
+                            "identifiers": o.get("identifiers") or [],
                             "time_observed_at": o.get("time_observed_at"),
                             "research_grade": o.get("quality_grade") == "research",
                             "photo_url": photo_url,
@@ -2070,6 +2175,20 @@ with tab_dashboard:
                     st.info(f"Voor {len(unconfirmed)} soorten kon de eerste waarneming niet volledig worden gecontroleerd. Deze krijgen voorlopig geen ster.")
                 st.markdown(recent_observations_html(page_df, firsts), unsafe_allow_html=True)
 
+            if selected_overviews & {"Waarnemers", "Identifiers"}:
+                is_identifier_view = "Identifiers" in selected_overviews
+                st.subheader("Identifiers" if is_identifier_view else "Waarnemers")
+                st.caption(
+                    "Iedere persoon telt per waarneming eenmaal mee; identificaties van de waarnemer zelf tellen niet mee."
+                    if is_identifier_view else
+                    "Waarnemers op aflopend aantal waarnemingen binnen de gekozen filters."
+                )
+                people = ranked_people(df, identifiers=is_identifier_view)
+                if people:
+                    st.markdown(people_html(people, identifiers=is_identifier_view), unsafe_allow_html=True)
+                else:
+                    st.info("Geen personen gevonden binnen deze selectie.")
+
             if meta.get("total", 0) > 10000:
                 st.warning(
                     "De zoekopdracht bevat meer dan 10.000 resultaten. "
@@ -2079,7 +2198,7 @@ with tab_dashboard:
             checkpoint("DASHBOARD_RENDER_DONE")
 
 st.caption(
-    "Versie 0.42 · Atlas-koppeling v0.38 · gebieden als GeoJSON op schijf bewaren."
+    "Versie 0.43 · Atlas-koppeling v0.38 · gebieden als GeoJSON op schijf bewaren."
 )
 
 checkpoint("APP_END")
