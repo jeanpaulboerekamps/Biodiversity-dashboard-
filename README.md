@@ -1,8 +1,14 @@
-# Mijn Biodiversiteit — versie 0.44
+# Mijn Biodiversiteit — versie 0.45
 
 Publieksvriendelijke versie.
 
-## Nieuw in versie 0.44
+## Nieuw in versie 0.45
+
+- **Meest recente waarnemingen** toont een groene rand om de hele kaart wanneer
+  die afzonderlijke waarneming onderzoekskwaliteit (RG) heeft. De gele ster
+  voor de eerste waarneming blijft onafhankelijk hiervan zichtbaar.
+
+## Eerder toegevoegd in versie 0.44
 
 - **Tijdlijn van eerste vondsten** toont fotokaarten in een raster van zes op
   brede schermen, van nieuw naar oud. Datum en waarnemer staan op de kaart;
@@ -156,4 +162,4 @@ Zet de Streamlit-app op public en deel de vaste `*.streamlit.app` URL.
 
 ### GitHub
 Vervang bij deze versie minimaal `app.py` (of upload de volledige projectinhoud).
-Na installatie staat onderaan zichtbaar `Versie 0.44 · Atlas-koppeling v0.38`.
+Na installatie staat onderaan zichtbaar `Versie 0.45 · Atlas-koppeling v0.38`.

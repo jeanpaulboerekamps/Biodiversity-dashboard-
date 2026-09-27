@@ -141,7 +141,7 @@ def area_filename(name):
     return f"{safe or 'mijn_gebied'}.geojson"
 
 
-st.markdown('<span class="release-badge">Versie 0.44</span>', unsafe_allow_html=True)
+st.markdown('<span class="release-badge">Versie 0.45</span>', unsafe_allow_html=True)
 st.title("🌿 Mijn Biodiversiteit")
 st.caption("Kies een gebied en ontdek direct welke soorten er leven.")
 
@@ -1009,7 +1009,8 @@ def recent_observations_html(df, firsts):
         cards.append(photo_card_html(
             row.get("Nederlandse naam"), row.get("wetenschappelijke naam"),
             row.get("photo_url") or row.get("taxon_photo_url"), row.get("inat_url"),
-            pd.Timestamp(row["datum"]).strftime("%d-%m-%Y"), first=first,
+            pd.Timestamp(row["datum"]).strftime("%d-%m-%Y"),
+            research_grade=bool(row.get("research_grade")), first=first,
         ))
     return photo_grid_html(cards)
 
@@ -2069,7 +2070,7 @@ with tab_dashboard:
 
             if "Meest recente waarnemingen" in selected_overviews:
                 st.subheader("Meest recente waarnemingen")
-                st.caption("Nieuwste eerst. ★ = eerste openbare iNaturalist-waarneming van deze soort exact binnen dit gebied, over alle jaren, maanden, waarnemers en kwaliteitsniveaus. Bij gelijke datum beslist het tijdstip, daarna het waarnemingsnummer.")
+                st.caption("Nieuwste eerst. Groene rand = onderzoekskwaliteit (RG). ★ = eerste openbare iNaturalist-waarneming van deze soort exact binnen dit gebied, over alle jaren, maanden, waarnemers en kwaliteitsniveaus. Bij gelijke datum beslist het tijdstip, daarna het waarnemingsnummer.")
                 recent = df.copy()
                 recent["sort_time"] = pd.to_datetime(recent["time_observed_at"], utc=True, errors="coerce", format="mixed")
                 recent["sort_time"] = recent["sort_time"].fillna(pd.to_datetime(recent["datum"], utc=True))
@@ -2111,7 +2112,7 @@ with tab_dashboard:
             checkpoint("DASHBOARD_RENDER_DONE")
 
 st.caption(
-    "Versie 0.44 · Atlas-koppeling v0.38 · gebieden als GeoJSON op schijf bewaren."
+    "Versie 0.45 · Atlas-koppeling v0.38 · gebieden als GeoJSON op schijf bewaren."
 )
 
 checkpoint("APP_END")
