@@ -140,7 +140,7 @@ def area_filename(name):
     return f"{safe or 'mijn_gebied'}.geojson"
 
 
-st.markdown('<span class="release-badge">Publieksversie 2.7</span>', unsafe_allow_html=True)
+st.markdown('<span class="release-badge">Versie 0.39</span>', unsafe_allow_html=True)
 st.title("🌿 Mijn Biodiversiteit")
 st.caption("Kies een gebied en ontdek direct welke soorten er leven.")
 
@@ -840,7 +840,6 @@ def observed_species_html(df):
             count=("species_id", "size"),
             name=("species_nl", first_text),
             scientific=("species_scientific", first_text),
-            photo=("photo_url", first_text),
             taxon_photo=("taxon_photo_url", first_text),
         )
         .reset_index()
@@ -851,7 +850,7 @@ def observed_species_html(df):
     for row in summary.itertuples(index=False):
         name = html.escape(row.name or row.scientific or "Onbekende soort")
         scientific = html.escape(row.scientific or "")
-        photo = row.photo or row.taxon_photo
+        photo = row.taxon_photo
         if isinstance(photo, str) and photo.startswith("https://"):
             picture = f'<img loading="lazy" src="{html.escape(photo, quote=True)}" alt="{name}">'
         else:
@@ -1044,8 +1043,8 @@ with tab_dashboard:
         mode = "Mijn waarnemingen" if mode == "Alleen mijn waarnemingen" else "Alle waarnemers"
 
         overview_labels = {
+            "Waargenomen soorten": "Waargenomen soorten",
             "Soortgroepen": "Taxonomische samenstelling",
-            "Meest waargenomen soorten": "Meest waargenomen soorten",
             "Kaart met concentraties": "Heatmap",
             "Ontwikkeling per jaar": "Per jaar",
             "Seizoenspatroon": "Gemiddeld per kalendermaand",
@@ -1053,7 +1052,6 @@ with tab_dashboard:
             "Tijdlijn van eerste vondsten": "Tijdlijn nieuwe soorten",
             "Kansrijke nieuwe soorten": "Target soorten",
             "Mijn soorten in de Atlas of Life": "Mijn waarnemingen in Atlas of Life",
-            "Waargenomen soorten": "Waargenomen soorten",
         }
         overview_selected_labels = []
         overview_columns = st.columns(3)
@@ -1061,7 +1059,7 @@ with tab_dashboard:
             if overview_columns[index % 3].checkbox(
                 label,
                 value=False,
-                key=f"overview_public_v37_{index}",
+                key=f"overview_public_{label}",
             ):
                 overview_selected_labels.append(label)
         overview_choices = [overview_labels[label] for label in overview_selected_labels]
@@ -1145,6 +1143,7 @@ with tab_dashboard:
                     ).strip()
 
         analysis_signature = json.dumps({
+            "data_version": 2,
             "area": active,
             "geometry": st.session_state.areas[active],
             "mode": mode,
@@ -1334,7 +1333,7 @@ with tab_dashboard:
                             "observation_id": o.get("id"),
                             "photo_url": photo_url,
                             "taxon_photo_url": species_rec.get("default_photo_url")
-                            or taxon.get("default_photo_url"),
+                            or (taxon.get("default_photo_url") if tid == species_id else None),
                             "inat_url": (
                                 f"https://www.inaturalist.org/observations/{o.get('id')}"
                                 if o.get("id") else None
@@ -1890,20 +1889,6 @@ with tab_dashboard:
                     "de analyse wordt daarna automatisch vernieuwd."
                 )
 
-            if "Meest waargenomen soorten" in selected_overviews:
-                st.subheader("Meest waargenomen soorten")
-                top = (
-                    df.groupby(
-                        ["Nederlandse naam", "wetenschappelijke naam"],
-                        dropna=False,
-                    )
-                    .size()
-                    .reset_index(name="waarnemingen")
-                    .sort_values("waarnemingen", ascending=False)
-                    .head(30)
-                )
-                st.dataframe(top, use_container_width=True, hide_index=True)
-
             if "Waargenomen soorten" in selected_overviews and taxonomy_available:
                 st.subheader("Waargenomen soorten")
                 st.caption("Soorten in het gekozen gebied en de gekozen periode, gesorteerd op aantal waarnemingen.")
@@ -1922,7 +1907,7 @@ with tab_dashboard:
             checkpoint("DASHBOARD_RENDER_DONE")
 
 st.caption(
-    "Publieksversie 2.7 · Atlas-koppeling v0.38 · gebieden als GeoJSON op schijf bewaren."
+    "Versie 0.39 · Atlas-koppeling v0.38 · gebieden als GeoJSON op schijf bewaren."
 )
 
 checkpoint("APP_END")
